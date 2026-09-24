@@ -1,0 +1,1904 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>德州扑克</title>
+<link rel="stylesheet" href="css/style.css">
+
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent }
+html, body { height: 100% }
+body {
+  background: radial-gradient(620px 420px at 50% 10%, #1d2a38 0%, #0c1016 70%);
+  font-family: 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', sans-serif;
+  color: #e8ecf1; overflow: hidden; user-select: none; touch-action: manipulation; overscroll-behavior: none
+}
+#stage-wrap { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center }
+#stage { position: relative; width: 480px; height: 854px; display: flex; flex-direction: column; flex: none; transform-origin: center; overflow: hidden }
+
+#hud { height: 38px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; font-size: 12px; color: #93a3b3; background: rgba(8,12,18,.5); flex: none }
+#hud .hleft { display: flex; gap: 10px; align-items: center; min-width: 0 }
+#hud .hstage { color: #ffe9ad; font-weight: 700 }
+#hud .roomtag { color: #ffd97a; font-weight: 700; cursor: pointer; background: rgba(255,213,74,.12); border: 1px dashed rgba(255,213,74,.5); border-radius: 8px; padding: 2px 10px; transition: background .15s }
+#hud .roomtag:hover { background: rgba(255,213,74,.25) }
+#hud .roomtag:active { background: rgba(255,213,74,.35) }
+
+#opps { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px 2px; justify-content: center; flex: none }
+.opp { position: relative; width: 142px; background: rgba(9,13,18,.85); border: 1px solid rgba(255,255,255,.12); border-radius: 12px; padding: 5px 7px; transition: border-color .2s, box-shadow .2s, opacity .2s }
+.opp .oh { display: flex; align-items: center; gap: 5px }
+.opp .avatar { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; color: #0d1116; flex: none }
+.opp .oname { font-size: 12px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0 }
+.opp .obet { margin-top: 2px; font-size: 11.5px; color: #ffd97a; font-weight: 700; min-height: 14px }
+.opp .ocards { display: flex; gap: 4px; margin-top: 4px; height: 42px; align-items: center; justify-content: center }
+.opp .ostack { margin-left: auto; font-size: 11px; color: #ffd97a; font-weight: 800; flex: none }
+.opp .ostack.timing { background: #c8952c; color: #241a05; border-radius: 8px; padding: 0 7px; line-height: 16px }
+.opp .ostack.timing.low { background: #e05252; color: #fff }
+.opp .otags { display: flex; gap: 4px; margin-top: 2px; min-height: 13px; flex-wrap: wrap }
+.otag { font-size: 10px; font-weight: 700; padding: 0 6px; border-radius: 6px; line-height: 13px; background: #31465a; color: #cfe0ee }
+.otag.blind { background: #7e2a33; color: #ffd9dd }
+.otag.dealer { background: #f4f1e6; color: #222 }
+.otag.utg { background: #b8860b; color: #fff6df }
+.otag.st { background: #a3323c; color: #fff }
+.otag.allin { background: #c8952c; color: #241a05 }
+.otag.fold { background: #4a3232; color: #d9b0b0 }
+.otag.off { background: #4a4055; color: #d9ccf5 }
+.opp.turn { border-color: #ffd54a; animation: oppulse 1.5s infinite }
+@keyframes oppulse {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(255,213,74,.25), 0 0 10px rgba(255,213,74,.25) }
+  50% { box-shadow: 0 0 0 3px rgba(255,213,74,.6), 0 0 20px rgba(255,213,74,.5) }
+}
+.opp.folded .oh, .opp.folded .otags, .opp.folded .obet, .opp.folded .ocards { opacity: .35; filter: grayscale(1) }
+.opp.win { border-color: #5ce27a; box-shadow: 0 0 0 2px rgba(92,226,122,.4), 0 0 14px rgba(92,226,122,.45) }
+#stage.crowd .opp { width: 104px; padding: 4px 5px }
+#stage.crowd .opp .avatar { width: 20px; height: 20px; font-size: 10px }
+#stage.crowd .opp .oname { font-size: 11px }
+#stage.crowd .opp .ostack { font-size: 10.5px }
+#stage.crowd .opp .obet { font-size: 10.5px; margin-top: 1px; min-height: 12px }
+#stage.crowd .opp .otags { margin-top: 1px; min-height: 12px }
+#stage.crowd .opp .ocards { height: 34px; margin-top: 2px }
+#stage.crowd .card.sc { width: 24px; height: 34px }
+#stage.crowd .card.sc .cb { font-size: 14px }
+#stage.crowd .card.sc .ct { font-size: 7px }
+#stage.crowd #me { height: 114px }
+#stage.crowd .card.hmg { width: 62px; height: 86px }
+#stage.crowd .card.hmg .cb { font-size: 34px }
+#stage.crowd .card.hmg .ct { font-size: 12px; top: 3px; left: 4px }
+#stage.crowd .card.hmg .cc { font-size: 11px }
+
+#center { flex: 1 1 122px; min-height: 120px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; position: relative; padding: 6px 0 4px }
+#felt-bg { position: absolute; inset: 4px 14px; border-radius: 26px; background: radial-gradient(130% 100% at 50% 30%, #2c7649 0%, #1c5735 60%, #164427 100%); box-shadow: inset 0 0 40px rgba(0,0,0,.45); z-index: 0 }
+#center > * { position: relative; z-index: 1 }
+#pot { background: rgba(0,0,0,.4); border: 1px solid rgba(255,215,120,.4); color: #ffd97a; font-weight: 700; padding: 4px 16px; border-radius: 14px; font-size: 14px }
+#board { display: flex; gap: 6px; min-height: 78px; align-items: center }
+
+.card { position: relative; background: #f8f7f1; border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,.4); flex: none }
+.card.red { color: #c22f3b }
+.card.black { color: #252b34 }
+.card .ct { position: absolute; top: 2px; left: 3px; font-style: normal; font-weight: 800; font-size: 11px; line-height: 1; text-align: center }
+.card .ct small { display: block; font-size: 9px; margin-top: 1px }
+.card .cc { position: absolute; bottom: 2px; right: 2px; font-style: normal; font-weight: 800; font-size: 10px; line-height: 1; text-align: center; transform: rotate(180deg) }
+.card .cc small { display: block; font-size: 8px; margin-top: 1px }
+.card .cb { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -48%); font-weight: 400; opacity: .9 }
+.card.bm { width: 56px; height: 78px }
+.card.bm .cb { font-size: 30px }
+.card.hmg { width: 70px; height: 98px }
+.card.hmg .ct { font-size: 13px; top: 3px; left: 4px }
+.card.hmg .ct small { font-size: 10px }
+.card.hmg .cc { font-size: 12px; bottom: 2px; right: 2px }
+.card.hmg .cc small { font-size: 9px }
+.card.hmg .cb { font-size: 38px }
+.card.sc { width: 32px; height: 42px }
+.card.sc .ct { font-size: 8px; top: 1px; left: 2px }
+.card.sc .ct small { font-size: 7px }
+.card.sc .cc { display: none }
+.card.sc .cb { font-size: 16px }
+.card.cback { background: repeating-linear-gradient(45deg, #3d5c9e 0 5px, #32508c 5px 10px); border: 2px solid #e9e7db }
+.card.cback::after { content: ''; position: absolute; inset: 2px; border: 1px solid rgba(255,255,255,.4); border-radius: 3px }
+.card.empty { background: rgba(255,255,255,.05); box-shadow: none; border: 1.5px dashed rgba(255,255,255,.18) }
+.card.pop { animation: pop .3s cubic-bezier(.2,.9,.3,1.3) }
+@keyframes pop { from { transform: translateY(-14px) scale(.6); opacity: 0 } to { transform: none; opacity: 1 } }
+
+#me { height: 134px; display: flex; flex-direction: column; align-items: center; gap: 5px; position: relative; flex: none }
+.pill { background: linear-gradient(#ffd97a, #dfa436); color: #3a2604; font-weight: 800; font-size: 12px; padding: 2px 10px; border-radius: 10px; border: 1px solid #8a6212; box-shadow: 0 2px 6px rgba(0,0,0,.4) }
+#me-cards { display: flex; gap: 6px }
+#me-info { font-size: 12.5px; color: #c7d0da; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: center }
+#me-info b { color: #ffd97a }
+#me.turn #me-cards { filter: drop-shadow(0 0 10px rgba(255,213,74,.55)) }
+#me.folded #me-cards { opacity: .35; filter: grayscale(1) }
+#me-info .mtag.fk { font-size: 13px; font-weight: 800; color: #ff8a8a }
+#me-info .mtimer { font-size: 12.5px; font-weight: 800; color: #ffd97a }
+#me-info .mtimer.low { color: #e05252 }
+.otag.memini { background: #31465a; color: #cfe0ee }
+#toast { position: absolute; top: 46px; left: 50%; transform: translateX(-50%); background: rgba(8,14,10,.95); border: 1px solid rgba(255,215,120,.5); color: #ffe9ad; padding: 8px 18px; border-radius: 12px; font-size: 13px; font-weight: 700; z-index: 30; opacity: 0; transition: opacity .25s; pointer-events: none; white-space: nowrap; max-width: 92%; overflow: hidden; text-overflow: ellipsis }
+#toast.show { opacity: 1 }
+#me-info .mtag { font-size: 11px; color: #93a3b3 }
+#me-spect { display: none; background: rgba(9,13,18,.8); border: 1px dashed rgba(255,255,255,.2); border-radius: 12px; padding: 14px 26px; color: #93a3b3; font-size: 13px }
+#me.spect #me-spect { display: block }
+#me.spect #me-cards, #me.spect #me-info { display: none }
+
+#ab { height: 164px; background: rgba(12,17,23,.97); border-top: 1px solid rgba(255,255,255,.09); display: flex; flex-direction: column; padding: 8px 12px 10px; gap: 8px; flex: none; transition: box-shadow .3s, background .3s }
+#ab.myturn { background: rgba(18,26,20,.98); box-shadow: 0 -6px 28px rgba(255,213,74,.28) }
+#ab.myturn #ab-info { color: #ffd54a; font-weight: 800; font-size: 13px }
+#ab.myturn .btn:not(:disabled) { animation: btnpulse 1.2s infinite }
+@keyframes btnpulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255,213,74,.0) }
+  50% { box-shadow: 0 0 14px 2px rgba(255,213,74,.35) }
+}
+#ab-info { font-size: 12px; color: #93a3b3; text-align: center; height: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+#btnrow { display: flex; gap: 10px }
+.btn { flex: 1; border: none; border-radius: 12px; padding: 17px 0; font-size: 18px; font-weight: 700; cursor: pointer; font-family: inherit; transition: filter .15s, transform .05s }
+.btn:active:not(:disabled) { transform: translateY(1px) }
+.btn:disabled { opacity: .35; cursor: default }
+.btn-fold { background: #7e2a33; color: #ffd9dd }
+.btn-call { background: #275e7e; color: #d9efff }
+.btn-raise { background: #b8860b; color: #fff6df; flex: 1.6; font-size: 18px; box-shadow: 0 3px 10px rgba(184,134,11,.35) }
+#raiserow { display: none; align-items: center; gap: 8px }
+#raiserow.show { display: flex }
+#range { flex: 1; accent-color: #ffd54a; height: 36px; touch-action: none }
+#range-val { font-size: 14px; color: #ffd97a; font-weight: 800; min-width: 66px; text-align: right }
+.qp { background: #26313d; color: #c7d0da; border: 1px solid rgba(255,255,255,.14); border-radius: 10px; padding: 14px 0; font-size: 15px; font-weight: 700; cursor: pointer; font-family: inherit; flex: 1 }
+.qp:active { background: #31404f }
+
+#logdock { flex: 0 1 286px; min-height: 88px; display: flex; flex-direction: column; background: rgba(8,12,18,.92); border-top: 1px solid rgba(255,255,255,.08); overflow: hidden }
+#logdock.collapsed { flex: 0 0 38px; min-height: 0 }
+#logdock-head { display: flex; align-items: center; gap: 10px; padding: 0 12px; height: 38px; flex: none; cursor: pointer; user-select: none }
+#logdock-head:hover { background: rgba(255,255,255,.04) }
+#dock-title { font-size: 12px; color: #93a3b3; font-weight: 700; flex: none }
+#dock-title.hl { color: #ffd54a }
+#dock-latest { flex: 1; min-width: 0; font-size: 12px; color: #c7d0da; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+#dock-latest.hl { color: #ffe9ad; font-weight: 700 }
+#btn-dock-toggle { flex: none; background: #26313d; color: #c7d0da; border: 1px solid rgba(255,255,255,.14); border-radius: 8px; padding: 4px 12px; font-size: 11px; font-weight: 700; cursor: pointer; font-family: inherit }
+#btn-dock-toggle:active { background: #31404f }
+#logdock-body { flex: 1; overflow-y: auto; font-size: 12px; line-height: 1.7; color: #c7d0da; padding: 4px 14px 8px }
+#logdock.collapsed #logdock-body { display: none }
+#logdock-body .sep { color: #7f909f; margin-top: 6px }
+
+#overlay { position: absolute; inset: 0; z-index: 20; background: rgba(4,7,10,.82); display: flex; align-items: center; justify-content: center }
+#overlay.hide { display: none }
+.ovcard { width: 90%; max-width: 420px; background: linear-gradient(165deg, #1c2733, #111922); border: 1px solid rgba(255,255,255,.13); border-radius: 16px; padding: 24px 22px; text-align: center; box-shadow: 0 20px 50px rgba(0,0,0,.5); max-height: 94%; overflow-y: auto }
+.ovcard h1 { font-size: 30px; color: #ffd97a; letter-spacing: 6px; margin-bottom: 10px }
+.ovcard h2 { font-size: 20px; margin-bottom: 8px }
+.ovcard p { color: #a9b6c2; font-size: 13px; line-height: 1.8; margin-bottom: 6px }
+.ovcard .dim { color: #74838f; font-size: 11.5px; line-height: 1.6 }
+.bigbtn { display: block; width: 100%; margin-top: 12px; background: linear-gradient(#ffd97a, #e2a83a); color: #3a2604; font-size: 15.5px; padding: 12px 0; border-radius: 12px; border: none; font-weight: 800; cursor: pointer; font-family: inherit }
+.bigbtn:disabled { opacity: .4; cursor: default }
+.bigbtn:active:not(:disabled) { transform: translateY(1px) }
+.joinrow { display: flex; gap: 8px; margin-top: 10px }
+.joinrow input { flex: 1; background: #0d141b; border: 1px solid rgba(255,255,255,.22); color: #e8ecf1; border-radius: 12px; padding: 12px; font-size: 16px; letter-spacing: 3px; text-transform: uppercase; font-family: inherit; outline: none; min-width: 0 }
+.joinrow input:focus { border-color: #ffd97a }
+.netstatus { color: #ff9a76; font-size: 12px; min-height: 16px; margin-top: 8px }
+.roomcode { font-size: 34px; letter-spacing: 9px; color: #ffd97a; font-weight: 800; margin: 6px 0 }
+.seatlist { display: grid; gap: 4px; font-size: 12.5px; color: #c7d0da; margin: 8px 0 }
+.seatlist span { display: flex; justify-content: space-between; background: rgba(255,255,255,.04); border-radius: 8px; padding: 6px 10px }
+.copyhint { font-size: 12px; color: #ffd97a; margin-top: 4px }
+
+</style>
+</head>
+<body>
+<div id="stage-wrap">
+  <div id="stage">
+    <div id="hud">
+      <div class="hleft"><span id="hud-hand">德州扑克</span><span id="hud-stage" class="hstage"></span><span id="hud-blind"></span></div>
+      <div class="hleft"><span id="hud-room" class="roomtag" style="display:none"></span></div>
+    </div>
+    <div id="opps"></div>
+    <div id="center">
+      <div id="felt-bg"></div>
+      <div id="pot">底池 $0</div>
+      <div id="board"></div>
+    </div>
+    <div id="me">
+      <div id="me-cards"><div class="card hmg empty"></div><div class="card hmg empty"></div></div>
+      <div id="me-info"></div>
+      <div id="me-spect">观战中 · 出现空位时下一局自动上场</div>
+    </div>
+    <div id="ab">
+      <div id="ab-info">点击「开始牌局」开始</div>
+      <div id="btnrow">
+        <button class="btn btn-fold" id="btn-fold" disabled>弃牌</button>
+        <button class="btn btn-call" id="btn-call" disabled>等待</button>
+        <button class="btn btn-raise" id="btn-raise" disabled>加注</button>
+      </div>
+      <div id="raiserow">
+        <button class="qp" data-m="min">最小</button>
+        <button class="qp" data-m="half">半池</button>
+        <button class="qp" data-m="pot">满池</button>
+        <button class="qp" data-m="all">全下</button>
+        <input type="range" id="range" min="0" max="0" value="0" step="5">
+        <span id="range-val">$0</span>
+      </div>
+    </div>
+    <div id="toast"></div>
+    <div id="logdock">
+      <div id="logdock-head">
+        <span id="dock-title">操作记录</span>
+        <span id="dock-latest"></span>
+        <button id="btn-dock-toggle">收起</button>
+      </div>
+      <div id="logdock-body"></div>
+    </div>
+    <div id="overlay" class="hide"></div>
+  </div>
+</div>
+<script>
+'use strict';
+const CONFIG = {
+  SUITS: ['♠', '♥', '♦', '♣'],
+  RANK_NAMES: { 2: '2', 3: '3', 4: '4', 5: '5', 6: '6', 7: '7', 8: '8', 9: '9', 10: '10', 11: 'J', 12: 'Q', 13: 'K', 14: 'A' },
+  DES_W: 480,
+  DES_H: 854,
+  MAX_SEATS: 8,
+  TURN_MS: 30000,
+  START_STACK: 2500,
+  BLIND_SB: 25,
+  BLIND_BB: 50,
+  BLIND_LEVEL_EVERY: 8,
+  PEER_VERSION: '1.5.4',
+  PEER_CDNS: [
+    'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js',
+    'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js'
+  ],
+  PEER_PREFIX: 'thpoker-',
+  CODE_CHARS: 'ABCDEFGHJKMNPQRSTUVWXYZ23456789',
+  CARD_RANKS: [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+}
+
+const AI_DEFS = [
+  { name: '你', color: '#5ec8f2' },
+  { name: '阿强', color: '#ff8a65', aggr: 0.7, tight: 0.4 },
+  { name: '小李', color: '#c58af0', aggr: 0.45, tight: 0.55 },
+  { name: '老周', color: '#ffd54f', aggr: 0.55, tight: 0.25 }
+]
+
+const SEAT_COLORS = ['#5ec8f2', '#ff8a65', '#c58af0', '#7fe08a', '#ffd54f', '#7fb3e7', '#f29191', '#9fe0d8']
+
+
+const $ = s => document.querySelector(s)
+
+function delay(ms) {
+  return new Promise(r => setTimeout(r, ms * ((typeof window !== 'undefined' && window.__speed) || 1)))
+}
+
+function escapeHtml(str) {
+  if (str == null) return ''
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+}
+
+function isValidColor(color) {
+  return typeof color === 'string' && /^#([0-9a-fA-F]{6})$/.test(color)
+}
+
+function sanitizeName(name, fallback = '玩家') {
+  const s = String(name || fallback).trim().slice(0, 8)
+  return s || fallback
+}
+
+function makeDeck() {
+  const d = []
+  for (const r of CONFIG.CARD_RANKS) {
+    for (let s = 0; s < 4; s++) d.push({ r, s })
+  }
+  for (let i = d.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[d[i], d[j]] = [d[j], d[i]]
+  }
+  return d
+}
+
+function rn(rank) {
+  return CONFIG.RANK_NAMES[rank]
+}
+
+function genCode() {
+  let c = ''
+  for (let i = 0; i < 5; i++) c += CONFIG.CODE_CHARS[Math.floor(Math.random() * CONFIG.CODE_CHARS.length)]
+  return c
+}
+
+function beep(f, d, g = 0.05) {
+  try {
+    const AC = typeof window !== 'undefined' && (window.AudioContext || window.webkitAudioContext)
+    if (!AC) return
+    window.__ac = window.__ac || new window.AudioContext()
+    const o = window.__ac.createOscillator()
+    const ga = window.__ac.createGain()
+    o.type = 'sine'
+    o.frequency.value = f
+    o.connect(ga)
+    ga.connect(window.__ac.destination)
+    const t = window.__ac.currentTime
+    ga.gain.setValueAtTime(g, t)
+    ga.gain.exponentialRampToValueAtTime(0.0001, t + d)
+    o.start(t)
+    o.stop(t + d + 0.03)
+  } catch (e) {}
+}
+
+function loadPeerJS() {
+  return new Promise((res, rej) => {
+    if (window.Peer) return res(window.Peer)
+    let k = 0
+    ;(function next() {
+      if (k >= CONFIG.PEER_CDNS.length) return rej(new Error('联机组件加载失败（需访问外网 CDN）'))
+      const s = document.createElement('script')
+      s.src = CONFIG.PEER_CDNS[k++]
+      s.onload = () => res(window.Peer)
+      s.onerror = () => { s.remove(); next() }
+      document.head.appendChild(s)
+    })()
+  })
+}
+
+function copyText(t) {
+  const done = () => {
+    const toast = $('#toast')
+    toast.textContent = '已复制：' + t
+    toast.classList.add('show')
+    clearTimeout(window.__toastTimer)
+    window.__toastTimer = setTimeout(() => toast.classList.remove('show'), 2000)
+  }
+  const fallback = () => {
+    try {
+      const ta = document.createElement('textarea')
+      ta.value = t
+      ta.style.position = 'fixed'
+      ta.style.opacity = '0'
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      document.body.removeChild(ta)
+      done()
+    } catch (e) {
+      const toast = $('#toast')
+      toast.textContent = t
+      toast.classList.add('show')
+    }
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(t).then(done).catch(fallback)
+  } else {
+    fallback()
+  }
+}
+
+
+const dom = {}
+
+function cacheDom() {
+  dom.stage = $('#stage')
+  dom.stageWrap = $('#stage-wrap')
+  dom.opps = $('#opps')
+  dom.board = $('#board')
+  dom.pot = $('#pot')
+  dom.me = $('#me')
+  dom.meCards = $('#me-cards')
+  dom.meInfo = $('#me-info')
+  dom.ab = $('#ab')
+  dom.abInfo = $('#ab-info')
+  dom.btnFold = $('#btn-fold')
+  dom.btnCall = $('#btn-call')
+  dom.btnRaise = $('#btn-raise')
+  dom.raiserow = $('#raiserow')
+  dom.range = $('#range')
+  dom.rangeVal = $('#range-val')
+  dom.logdock = $('#logdock')
+  dom.logdockBody = $('#logdock-body')
+  dom.dockLatest = $('#dock-latest')
+  dom.dockTitle = $('#dock-title')
+  dom.btnDockToggle = $('#btn-dock-toggle')
+  dom.overlay = $('#overlay')
+  dom.toast = $('#toast')
+  dom.hudHand = $('#hud-hand')
+  dom.hudStage = $('#hud-stage')
+  dom.hudBlind = $('#hud-blind')
+  dom.hudRoom = $('#hud-room')
+}
+
+
+function eval5(c) {
+  const ranks = c.map(x => x.r).sort((a, b) => b - a)
+  const cnt = {}
+  ranks.forEach(r => cnt[r] = (cnt[r] || 0) + 1)
+  const groups = Object.keys(cnt).map(r => [+r, cnt[r]]).sort((a, b) => b[1] - a[1] || b[0] - a[0])
+  const flush = c.every(x => x.s === c[0].s)
+  let straight = 0
+  const u = [...new Set(ranks)]
+  if (u.length === 5) {
+    if (u[0] - u[4] === 4) straight = u[0]
+    else if (u[0] === 14 && u[1] === 5 && u[4] === 2) straight = 5
+  }
+  if (flush && straight) return [8, straight]
+  if (groups[0][1] === 4) return [7, groups[0][0], groups[1][0]]
+  if (groups[0][1] === 3 && groups[1][1] === 2) return [6, groups[0][0], groups[1][0]]
+  if (flush) return [5].concat(ranks)
+  if (straight) return [4, straight]
+  if (groups[0][1] === 3) return [3, groups[0][0], groups[1][0], groups[2][0]]
+  if (groups[0][1] === 2 && groups[1][1] === 2) return [2, groups[0][0], groups[1][0], groups[2][0]]
+  if (groups[0][1] === 2) return [1, groups[0][0], groups[1][0], groups[2][0], groups[3][0]]
+  return [0].concat(ranks)
+}
+
+function bestHand(cards) {
+  if (cards.length === 5) return eval5(cards)
+  let best = null
+  const n = cards.length
+  for (let a = 0; a < n; a++)
+    for (let b = a + 1; b < n; b++)
+      for (let c = b + 1; c < n; c++)
+        for (let d = c + 1; d < n; d++)
+          for (let e = d + 1; e < n; e++) {
+            const s = eval5([cards[a], cards[b], cards[c], cards[d], cards[e]])
+            if (!best || cmpScores(s, best) > 0) best = s
+          }
+  return best
+}
+
+function cmpScores(a, b) {
+  for (let i = 0; i < 5; i++) {
+    const x = a[i] || 0, y = b[i] || 0
+    if (x !== y) return x > y ? 1 : -1
+  }
+  return 0
+}
+
+function handName(s) {
+  if (s[0] === 8) return s[1] === 14 ? '皇家同花顺' : '同花顺 ' + rn(s[1]) + ' 高'
+  if (s[0] === 7) return '四条 ' + rn(s[1])
+  if (s[0] === 6) return '葫芦 ' + rn(s[1]) + ' 带 ' + rn(s[2])
+  if (s[0] === 5) return '同花 ' + rn(s[1]) + ' 高'
+  if (s[0] === 4) return '顺子 ' + rn(s[1]) + ' 高'
+  if (s[0] === 3) return '三条 ' + rn(s[1])
+  if (s[0] === 2) return '两对 ' + rn(s[1]) + ' 和 ' + rn(s[2])
+  if (s[0] === 1) return '一对 ' + rn(s[1])
+  return '高牌 ' + rn(s[1])
+}
+
+function straightHigh(uniqDesc) {
+  const u = [...new Set(uniqDesc)].sort((a, b) => b - a)
+  if (u.includes(14)) u.push(1)
+  let run = 1
+  for (let i = 1; i < u.length; i++) {
+    if (u[i] === u[i - 1] - 1) { run++; if (run >= 5) return u[i] + 4 }
+    else run = 1
+  }
+  return 0
+}
+
+function handStrength(p, board, curBet, minRaise) {
+  if (board.length === 0) {
+    if (p.hand.length < 2) return 0.1
+    const a = p.hand[0], b = p.hand[1]
+    const pts = r => r === 14 ? 10 : r === 13 ? 8 : r === 12 ? 7 : r === 11 ? 6 : r === 10 ? 5 : Math.floor(r / 2)
+    let sc
+    if (a.r === b.r) {
+      sc = Math.max(5, pts(a.r) * 2)
+    } else {
+      sc = pts(Math.max(a.r, b.r))
+      if (a.s === b.s) sc += 2
+      const hi = Math.max(a.r, b.r), lo = Math.min(a.r, b.r), gap = hi - lo - 1
+      if (gap === 1) sc -= 1
+      else if (gap === 2) sc -= 2
+      else if (gap === 3) sc -= 4
+      else if (gap > 3) sc -= 5
+      if (gap <= 1 && sc > 5) sc += 1
+    }
+    sc = Math.max(0.5, Math.min(20, sc))
+    return 0.06 + (sc / 20) * 0.82 + Math.random() * 0.04
+  }
+  const all = p.hand.concat(board)
+  if (board.length === 5) {
+    const best = bestHand(all)
+    let base = [0.18, 0.42, 0.64, 0.72, 0.8, 0.85, 0.92, 0.96, 0.98][best[0]]
+    if (best[0] === 1) {
+      const pr = best[1]
+      const boardTop = Math.max(...board.map(x => x.r))
+      const inHole = p.hand.some(x => x.r === pr)
+      base = inHole ? (pr >= boardTop ? 0.52 : 0.4) : 0.46
+    }
+    if (best[0] === 0) {
+      const myTop = Math.max(...p.hand.map(x => x.r))
+      const boardTop = Math.max(...board.map(x => x.r))
+      base = myTop > boardTop ? 0.27 : 0.18
+    }
+    return Math.max(0.03, Math.min(0.98, base + (Math.random() - 0.5) * 0.08))
+  }
+  const cnt = {}
+  all.forEach(x => cnt[x.r] = (cnt[x.r] || 0) + 1)
+  const arr = Object.keys(cnt).map(r => [+r, cnt[r]]).sort((a, b) => b[1] - a[1] || b[0] - a[0])
+  const scnt = {}
+  all.forEach(x => scnt[x.s] = (scnt[x.s] || 0) + 1)
+  const flushMade = all.some(x => scnt[x.s] === 5)
+  const flushDraw = Math.max(...Object.values(scnt)) === 4 && p.hand.some(x => scnt[x.s] === 4)
+  const u = Object.keys(cnt).map(Number).sort((a, b) => b - a)
+  const sh = u.length >= 5 ? straightHigh(u) : 0
+  let base
+  if (flushMade) base = 0.88
+  else if (sh) base = 0.8
+  else if (arr[0][1] === 4) base = 0.93
+  else if (arr[0][1] === 3 && arr.length > 1 && arr[1][1] >= 2) base = 0.86
+  else if (arr[0][1] === 3) base = 0.7
+  else if (arr[0][1] === 2 && arr.length > 1 && arr[1][1] === 2) base = 0.62
+  else if (arr[0][1] === 2) {
+    const pr = arr[0][0]
+    base = p.hand.some(x => x.r === pr) ? 0.45 : 0.42
+  } else base = 0.2
+  if (!flushMade && !sh) {
+    if (flushDraw) base += 0.1
+    let sb = 0
+    for (let i = 0; i + 3 < u.length; i++) {
+      const w = u.slice(i, i + 4)
+      const span = Math.max(...w) - Math.min(...w)
+      if (span === 3) sb = Math.max(sb, 0.13)
+      else if (span === 4) sb = Math.max(sb, 0.07)
+      else if (span === 5) sb = Math.max(sb, 0.04)
+    }
+    base += sb
+  }
+  return Math.max(0.03, Math.min(0.98, base + (Math.random() - 0.5) * 0.08))
+}
+
+
+function blankSeat(i) {
+  return {
+    i, seated: false, remote: false, isAI: false, leaving: false,
+    name: '', color: '#7f909f', stack: 0, hand: [], bet: 0, totalBet: 0,
+    folded: true, allIn: false, acted: false, elim: true, blind: '', win: false,
+    revealed: false, handHidden: false, aggr: 0, tight: 0
+  }
+}
+
+function createGameState() {
+  return {
+    deck: [],
+    board: [],
+    players: [],
+    dealerIdx: -1,
+    handNum: 0,
+    curBlinds: { sb: CONFIG.BLIND_SB, bb: CONFIG.BLIND_BB },
+    curBet: 0,
+    minRaise: CONFIG.BLIND_BB,
+    curActor: -1,
+    stageLabel: '',
+    potCarried: 0,
+    sbIdx: 0,
+    bbIdx: 0,
+    utgIdx: -1,
+    localIdx: 0,
+    net: null,
+    gameRunning: false,
+    overInfo: null,
+    logLines: [],
+    bannerState: null,
+    snapshotWaitingNext: false,
+    pendingAction: false,
+    turnDeadline: 0,
+    humanResolver: null,
+    nextHandResolver: null,
+    pendingRemote: {},
+
+    inHandCount() { return this.players.filter(p => p.seated && !p.folded).length },
+    canActCount() { return this.players.filter(p => p.seated && !p.folded && p.stack > 0 && !p.elim).length },
+    potTotal() { return this.potCarried + this.players.reduce((a, p) => a + (p.seated ? p.bet : 0), 0) },
+
+    nextActiveFrom(i) {
+      const len = this.players.length
+      for (let k = 1; k <= len; k++) {
+        const j = (i + k) % len
+        if (this.players[j].seated && !this.players[j].elim) return j
+      }
+      return i
+    },
+
+    nextActorAfter(i) {
+      const len = this.players.length
+      for (let k = 1; k <= len; k++) {
+        const j = (i + k) % len
+        const p = this.players[j]
+        if (p.seated && !p.elim && !p.folded && p.stack > 0) return j
+      }
+      return i
+    },
+
+    blindSize() {
+      const lvl = Math.min(4, Math.floor((this.handNum - 1) / CONFIG.BLIND_LEVEL_EVERY))
+      const sb = CONFIG.BLIND_SB * (2 ** lvl)
+      return { sb, bb: sb * 2 }
+    },
+
+    controllerOf(i) {
+      const p = this.players[i]
+      if (!p || !p.seated || p.elim) return 'none'
+      if (p.remote) return 'remote'
+      if (p.isAI) return 'ai'
+      return 'local'
+    },
+
+    resetForNewHand() {
+      this.deck = makeDeck()
+      this.board = []
+      this.potCarried = 0
+      this.curBet = 0
+      this.dealerIdx = this.nextActiveFrom(this.dealerIdx)
+      this.players.forEach(p => {
+        if (p.seated) {
+          p.hand = []; p.bet = 0; p.totalBet = 0; p.folded = false; p.allIn = false
+          p.acted = false; p.blind = ''; p.win = false; p.revealed = false
+        }
+      })
+      this.curBlinds = this.blindSize()
+      const actives = this.players.filter(p => p.seated && !p.elim)
+      this.sbIdx = (actives.length === 2) ? this.dealerIdx : this.nextActiveFrom(this.dealerIdx)
+      this.bbIdx = this.nextActiveFrom(this.sbIdx)
+      this.utgIdx = actives.length >= 3 ? this.nextActiveFrom(this.bbIdx) : -1
+    },
+
+    postBlind(i, amt, label) {
+      const p = this.players[i]
+      const pay = Math.min(amt, p.stack)
+      p.stack -= pay; p.bet += pay; p.totalBet += pay
+      if (p.stack === 0) p.allIn = true
+      p.blind = label
+    }
+  }
+}
+
+
+let lastOppCount = -1
+let oppSlots = []
+
+function initRenderer(gs) {
+  cacheOppSlots(gs)
+}
+
+function getOppCount() { return lastOppCount }
+
+function cacheOppSlots(gs) {
+  const list = seatedOpponents(gs)
+  if (lastOppCount === list.length) return
+  const frag = document.createDocumentFragment()
+  oppSlots = list.map((p, k) => {
+    const el = document.createElement('div')
+    el.className = 'opp'
+    el.id = 'opp-' + k
+    el.innerHTML = '<div class="oh"><span class="avatar"></span><span class="oname"></span><span class="ostack"></span></div>' +
+      '<div class="otags"></div>' +
+      '<div class="obet"></div>' +
+      '<div class="ocards"><div class="card sc empty"></div><div class="card sc empty"></div></div>'
+    frag.appendChild(el)
+    return {
+      root: el,
+      oname: el.querySelector('.oname'),
+      avatar: el.querySelector('.avatar'),
+      ostack: el.querySelector('.ostack'),
+      otags: el.querySelector('.otags'),
+      obet: el.querySelector('.obet'),
+      ocards: el.querySelectorAll('.ocards .card')
+    }
+  })
+  dom.opps.innerHTML = ''
+  dom.opps.appendChild(frag)
+  lastOppCount = list.length
+}
+
+function seatedOpponents(gs) {
+  const out = []
+  const len = gs.players.length
+  if (!len) return out
+  if (gs.localIdx >= 0) {
+    for (let k = 1; k <= len - 1; k++) {
+      const p = gs.players[(gs.localIdx + k) % len]
+      if (p.seated) out.push(p)
+    }
+  } else {
+    for (let k = 0; k < len; k++) {
+      if (gs.players[k].seated) out.push(gs.players[k])
+    }
+  }
+  return out
+}
+
+function setFace(el, c) {
+  const red = (c.s === 1 || c.s === 2)
+  el.classList.toggle('red', red)
+  el.classList.toggle('black', !red)
+  const rank = rn(c.r)
+  const suit = CONFIG.SUITS[c.s]
+  el.innerHTML = '<i class="ct">' + escapeHtml(rank) + '<small>' + escapeHtml(suit) + '</small></i>' +
+    '<b class="cb">' + escapeHtml(suit) + '</b>' +
+    '<i class="cc">' + escapeHtml(rank) + '<small>' + escapeHtml(suit) + '</small></i>'
+}
+
+function syncBoard(gs) {
+  const el = dom.board
+  while (el.children.length > gs.board.length) el.removeChild(el.lastChild)
+  for (let k = 0; k < gs.board.length; k++) {
+    const c = gs.board[k]
+    if (k < el.children.length) {
+      const child = el.children[k]
+      if (child.__key !== c.r + '-' + c.s) {
+        child.__key = c.r + '-' + c.s
+        child.className = 'card bm'
+        setFace(child, c)
+      }
+    } else {
+      const child = document.createElement('div')
+      child.className = 'card bm pop'
+      child.__key = c.r + '-' + c.s
+      setFace(child, c)
+      el.appendChild(child)
+    }
+  }
+}
+
+function render(gs) {
+  if (!gs.players.length) { renderActionBar(gs); return }
+  const so = seatedOpponents(gs)
+  cacheOppSlots(gs)
+  dom.stage.classList.toggle('crowd', so.length >= 5)
+  so.forEach((p, k) => renderOpponent(gs, p, k))
+  renderMe(gs)
+  dom.pot.textContent = '底池 $' + gs.potTotal()
+  dom.hudHand.textContent = '第 ' + Math.max(gs.handNum, 1) + ' 局'
+  dom.hudBlind.textContent = '盲注 $' + gs.curBlinds.sb + '/' + gs.curBlinds.bb
+  if (gs.net && gs.net.code) {
+    dom.hudRoom.style.display = ''
+    dom.hudRoom.textContent = '房间 ' + gs.net.code
+    dom.hudRoom.title = '点击复制口令码'
+  } else {
+    dom.hudRoom.style.display = 'none'
+  }
+  const dt = dom.dockTitle
+  if (gs.net && gs.net.mode === 'client' && gs.snapshotWaitingNext) {
+    dt.textContent = '等待房主开始第 ' + (gs.handNum + 1) + ' 局…'
+    dt.classList.add('hl')
+  } else {
+    dt.textContent = '操作记录'
+    dt.classList.remove('hl')
+  }
+  syncBoard(gs)
+  renderActionBar(gs)
+}
+
+function renderOpponent(gs, p, k) {
+  const slot = oppSlots[k]
+  if (!slot) return
+  const turnClass = gs.curActor === p.i && !p.folded && p.stack > 0 && !overlayVisible() && gs.inHandCount() >= 2 ? ' turn' : ''
+  slot.root.className = 'opp' + turnClass + (p.folded ? ' folded' : '') + (p.win && !p.folded ? ' win' : '')
+  slot.oname.textContent = p.name
+  slot.avatar.textContent = p.name[0] || ''
+  slot.avatar.style.background = isValidColor(p.color) ? p.color : '#7f909f'
+  slot.ostack.classList.remove('timing', 'low')
+  slot.ostack.textContent = p.elim ? '出局' : '$' + p.stack
+  slot.otags.innerHTML = posTags(gs, p)
+  slot.obet.textContent = p.bet > 0 ? '下注 $' + p.bet : ''
+  renderSlotCards(slot.ocards, p, false, gs.localIdx)
+}
+
+function renderMe(gs) {
+  const p = gs.localIdx >= 0 ? gs.players[gs.localIdx] : null
+  if (!p || !p.seated) {
+    dom.me.classList.add('spect')
+    dom.me.classList.remove('turn')
+    dom.meInfo.innerHTML = '观战中 · 等待空位或本局结束'
+    renderSlotCards(dom.meCards.querySelectorAll('.card'), { seated: false, hand: [], handHidden: false, revealed: false, i: -1 }, true, gs.localIdx)
+    return
+  }
+  dom.me.classList.remove('spect')
+  const myTurn = gs.curActor === gs.localIdx && !p.folded && p.stack > 0 && !overlayVisible() && gs.inHandCount() >= 2
+  dom.me.classList.toggle('turn', myTurn)
+  dom.me.classList.toggle('folded', p.folded && !p.elim)
+  dom.meInfo.innerHTML = ''
+  if (p.bet > 0) {
+    const pill = document.createElement('span')
+    pill.className = 'pill'
+    pill.textContent = '下注 $' + p.bet
+    dom.meInfo.appendChild(pill)
+  }
+  const nameSpan = document.createElement('b')
+  nameSpan.textContent = p.name
+  dom.meInfo.appendChild(nameSpan)
+  const stackSpan = document.createElement('span')
+  stackSpan.textContent = '筹码 $' + p.stack
+  dom.meInfo.appendChild(stackSpan)
+  const tags = posTags(gs, p).replace(/class="otag/g, 'class="otag memini')
+  if (tags) {
+    const wrap = document.createElement('span')
+    wrap.innerHTML = tags
+    while (wrap.firstChild) dom.meInfo.appendChild(wrap.firstChild)
+  }
+  if (p.folded && !p.elim) {
+    const fk = document.createElement('span')
+    fk.className = 'mtag fk'
+    fk.textContent = '已弃牌'
+    dom.meInfo.appendChild(fk)
+  }
+  if (p.elim) {
+    const eli = document.createElement('span')
+    eli.className = 'mtag'
+    eli.textContent = '已出局'
+    dom.meInfo.appendChild(eli)
+  }
+  const timer = document.createElement('span')
+  timer.className = 'mtimer'
+  timer.id = 'me-timer'
+  dom.meInfo.appendChild(timer)
+  renderSlotCards(dom.meCards.querySelectorAll('.card'), p, true, gs.localIdx)
+}
+
+function renderSlotCards(slots, p, big, localIdx) {
+  slots.forEach((slot, j) => {
+    const cls = big ? 'card hmg' : 'card sc'
+    const hidden = p.handHidden && !p.revealed
+    const c = p.hand[j]
+    let key, face
+    if (!p.seated) { key = 'empty'; face = false }
+    else if (hidden) { key = 'back'; face = false }
+    else if (c) { face = (p.i === localIdx) || p.revealed; key = face ? 'f' + c.r + '-' + c.s : 'back' }
+    else { key = 'empty'; face = false }
+    if (slot.__key === key) return
+    slot.__key = key
+    if (key === 'empty') { slot.className = cls + ' empty'; slot.innerHTML = ''; return }
+    if (face) {
+      slot.className = cls + ' pop'
+      setFace(slot, c)
+    } else {
+      slot.className = cls + ' cback pop'
+      slot.innerHTML = ''
+    }
+  })
+}
+
+function posTags(gs, p) {
+  const tags = []
+  if (gs.dealerIdx === p.i) tags.push('<span class="otag dealer">庄</span>')
+  if (p.blind === '小盲') tags.push('<span class="otag blind">小盲</span>')
+  if (p.blind === '大盲') tags.push('<span class="otag blind">大盲</span>')
+  if (gs.stageLabel === '翻牌前' && gs.utgIdx === p.i && gs.players.filter(x => x.seated && !x.elim).length >= 3)
+    tags.push('<span class="otag utg">枪口</span>')
+  if (p.allIn && !p.folded) tags.push('<span class="otag allin">全下</span>')
+  if (p.folded && p.seated && !p.elim && p.i !== gs.localIdx) tags.push('<span class="otag fold">弃</span>')
+  if (p.leaving) tags.push('<span class="otag off">离线</span>')
+  return tags.join('')
+}
+
+function isValidColor(c) { return typeof c === 'string' && /^#([0-9a-fA-F]{6})$/.test(c) }
+
+function renderActionBar(gs) {
+  if (!gs.players.length) return
+  const p = gs.localIdx >= 0 ? gs.players[gs.localIdx] : null
+  const info = dom.abInfo
+  const isTurn = !!p && p.seated && gs.curActor === gs.localIdx && !p.folded && p.stack > 0 && gs.inHandCount() >= 2 && !overlayVisible() && !gs.pendingAction
+  dom.ab.classList.toggle('myturn', isTurn)
+  if (!isTurn) {
+    dom.btnFold.disabled = true; dom.btnCall.disabled = true; dom.btnRaise.disabled = true
+    dom.raiserow.classList.remove('show')
+    let who
+    if (gs.localIdx < 0 || !p || !p.seated) who = '观战中'
+    else if (gs.snapshotWaitingNext) who = '等待房主开始下一局…'
+    else if (gs.curActor >= 0 && gs.players[gs.curActor] && gs.players[gs.curActor].seated)
+      who = '等待 <b style="color:' + escapeHtml(gs.players[gs.curActor].color) + '">' + escapeHtml(gs.players[gs.curActor].name) + '</b> 行动'
+    else who = (gs.stageLabel || '')
+    info.innerHTML = who + ' · 你的牌：<b>' + myHandName(gs) + '</b> · 底池 $' + gs.potTotal()
+    return
+  }
+  const toCall = gs.curBet - p.bet
+  dom.btnFold.disabled = toCall <= 0
+  dom.btnCall.disabled = false
+  dom.btnCall.textContent = toCall <= 0 ? '过牌' : (toCall >= p.stack ? '全下跟注 $' + p.stack : '跟注 $' + toCall)
+  const canRaise = p.bet + p.stack > gs.curBet
+  dom.raiserow.classList.toggle('show', canRaise)
+  const max = p.bet + p.stack
+  let min = gs.curBet + gs.minRaise
+  if (min > max) min = max
+  min = Math.ceil(min / 5) * 5
+  if (min > max) min = max
+  dom.range.min = min; dom.range.max = max; dom.range.step = 5
+  if (+dom.range.value < min || +dom.range.value > max) dom.range.value = min
+  updateRaiseLabel(gs)
+  dom.btnRaise.disabled = false
+  info.innerHTML = '轮到你了 · 你的牌：<b>' + myHandName(gs) + '</b> · 底池 $' + gs.potTotal()
+}
+
+function updateRaiseLabel(gs) {
+  const p = gs.localIdx >= 0 ? gs.players[gs.localIdx] : null
+  if (!p) return
+  const v = +dom.range.value
+  dom.rangeVal.textContent = '$' + v
+  const word = v >= (p.bet + p.stack) ? '全下到' : (gs.curBet === 0 ? '下注' : '加注到')
+  dom.btnRaise.textContent = word + ' $' + v
+}
+
+function myHandName(gs) {
+  if (gs.localIdx < 0 || !gs.players[gs.localIdx]) return '观战中'
+  const p = gs.players[gs.localIdx]
+  if (!p.seated) return '观战中'
+  if (p.hand.length < 2) return '…'
+  const a = p.hand[0], b = p.hand[1]
+  if (a.r === b.r) return '口袋对 ' + rn(a.r)
+  const hi = Math.max(a.r, b.r), lo = Math.min(a.r, b.r)
+  return rn(hi) + ' ' + rn(lo) + (a.s === b.s ? '（同花）' : '')
+}
+
+function overlayVisible() { return !dom.overlay.classList.contains('hide') }
+function showOverlay() { dom.overlay.classList.remove('hide') }
+function hideOverlay() { dom.overlay.classList.add('hide') }
+
+function clearOverlay() {
+  dom.overlay.innerHTML = ''
+}
+
+function buildOverlayCard(children) {
+  const card = document.createElement('div')
+  card.className = 'ovcard'
+  children.forEach(c => card.appendChild(c))
+  dom.overlay.innerHTML = ''
+  dom.overlay.appendChild(card)
+  dom.overlay.classList.remove('hide')
+}
+
+function getSeatedOpponents(gs) { return seatedOpponents(gs) }
+
+
+let gs = createGameState()
+let bannerTimer = null
+let toastTimer = null
+let clientTurnLeft = null
+
+function log(msg) {
+  const safe = document.createElement('div')
+  safe.innerHTML = msg
+  const text = safe.textContent || safe.innerText || ''
+  gs.logLines.push(text)
+  if (gs.logLines.length > 120) gs.logLines.shift()
+  const d = document.createElement('div')
+  d.textContent = text
+  dom.logdockBody.appendChild(d)
+  while (dom.logdockBody.children.length > 100) dom.logdockBody.removeChild(dom.logdockBody.firstChild)
+  dom.logdockBody.scrollTop = dom.logdockBody.scrollHeight
+  dom.dockLatest.textContent = text
+}
+
+function rebuildLog(lines) {
+  gs.logLines = lines.slice()
+  dom.logdockBody.innerHTML = ''
+  gs.logLines.forEach(m => {
+    const d = document.createElement('div')
+    d.textContent = m
+    dom.logdockBody.appendChild(d)
+  })
+  dom.logdockBody.scrollTop = dom.logdockBody.scrollHeight
+  dom.dockLatest.textContent = gs.logLines.length ? gs.logLines[gs.logLines.length - 1] : ''
+  dom.dockLatest.classList.remove('hl')
+}
+
+function N(p) {
+  return '<b style="color:' + escapeHtml(p.color) + '">' + escapeHtml(p.name) + '</b>'
+}
+
+function banner(text, ms) {
+  dom.dockLatest.textContent = text
+  dom.dockLatest.classList.add('hl')
+  gs.bannerState = { text, ms: ms || 2200 }
+  clearTimeout(bannerTimer)
+  bannerTimer = setTimeout(() => { dom.dockLatest.classList.remove('hl'); gs.bannerState = null }, ms || 2200)
+}
+
+function setStage(t) {
+  gs.stageLabel = t
+  dom.hudStage.textContent = t
+}
+
+function dealHoles() {
+  return new Promise(async (res) => {
+    const seq = []
+    const len = gs.players.length
+    for (let k = 0; k < len; k++) {
+      const p = gs.players[(gs.sbIdx + k) % len]
+      if (p.seated && !p.elim) seq.push(p)
+    }
+    for (let r = 0; r < 2; r++) {
+      for (const p of seq) {
+        p.hand.push(gs.deck.pop())
+        render(gs)
+        beep(520, .04)
+        await delay(140)
+      }
+    }
+    res()
+  })
+}
+
+function dealCards(n) {
+  return new Promise(async (res) => {
+    for (let k = 0; k < n; k++) {
+      gs.board.push(gs.deck.pop())
+      syncBoard(gs)
+      beep(600, .04)
+      await delay(170)
+    }
+    render(gs)
+    res()
+  })
+}
+
+function waitLocalAction(i, timeoutMs) {
+  return new Promise(res => {
+    let done = false
+    const speed = (typeof window !== 'undefined' && window.__speed) || 1
+    const t = setTimeout(() => {
+      const p = gs.players[i]
+      const auto = (gs.curBet - p.bet <= 0) ? { t: 'check', auto: true } : { t: 'fold', auto: true }
+      log(N(p) + ' 思考超时，自动' + (auto.t === 'check' ? '过牌' : '弃牌'))
+      finish(auto)
+    }, timeoutMs * speed)
+    function finish(a) {
+      if (done) return
+      done = true
+      clearTimeout(t)
+      gs.humanResolver = null
+      res(a)
+    }
+    gs.humanResolver = finish
+    gs.turnDeadline = Date.now() + timeoutMs * speed
+  })
+}
+
+function waitRemoteAction(i, timeoutMs) {
+  return new Promise(res => {
+    let done = false
+    const speed = (typeof window !== 'undefined' && window.__speed) || 1
+    const t = setTimeout(() => {
+      const p = gs.players[i]
+      const auto = (gs.curBet - p.bet <= 0) ? { t: 'check', remoteTimeout: true } : { t: 'fold', remoteTimeout: true }
+      finish(auto)
+    }, timeoutMs * speed)
+    function finish(a) {
+      if (done) return
+      done = true
+      clearTimeout(t)
+      delete gs.pendingRemote[i]
+      res(a)
+    }
+    gs.pendingRemote[i] = finish
+    gs.turnDeadline = Date.now() + timeoutMs * speed
+  })
+}
+
+function aiAction(p) {
+  const toCall = gs.curBet - p.bet
+  const pot = gs.potTotal()
+  const s = handStrength(p, gs.board, gs.curBet, gs.minRaise)
+  const r = Math.random()
+  if (toCall <= 0) {
+    const betProb = (0.18 + p.aggr * 0.4) + Math.max(0, s - 0.5) * 0.8
+    if (s > 0.35 && r < betProb && p.stack > gs.minRaise) {
+      const size = Math.max(gs.minRaise, Math.round(pot * (0.5 + r * 0.45) / 5) * 5)
+      return { t: 'raise', to: p.bet + size }
+    }
+    return { t: 'check' }
+  }
+  const potOdds = toCall / (pot + toCall)
+  if (toCall >= p.stack) {
+    const call = s > potOdds * 0.85 + p.tight * 0.08 || s > 0.82
+    return call ? { t: 'call' } : { t: 'fold' }
+  }
+  const valueRaise = s > 0.68 && r < (0.22 + p.aggr * 0.5) && pot > toCall * 0.4
+  const bluff = s < 0.32 && r > (0.965 - p.aggr * 0.04) && pot < p.stack
+  if (valueRaise || bluff) {
+    let to = gs.curBet + Math.max(gs.minRaise, Math.round(pot * (0.55 + r * 0.6) / 5) * 5)
+    if (s > 0.8 && r > 0.8) to = p.bet + p.stack
+    return { t: 'raise', to: Math.min(to, p.bet + p.stack) }
+  }
+  const callThresh = potOdds - 0.015 + (1 - p.tight) * 0.035
+  if (s > callThresh) return { t: 'call' }
+  if (s > 0.3 && r < 0.12) return { t: 'call' }
+  return { t: 'fold' }
+}
+
+function applyAction(i, a) {
+  const p = gs.players[i]
+  if (a.t === 'fold') {
+    p.folded = true
+    log(N(p) + (a.remoteTimeout ? ' 思考超时，自动弃牌' : ' 弃牌'))
+    beep(180, .09, .04)
+    return
+  }
+  if (a.t === 'check') {
+    p.acted = true
+    log(N(p) + (a.remoteTimeout || a.auto ? ' 思考超时，自动过牌' : ' 过牌'))
+    beep(700, .05)
+    return
+  }
+  if (a.t === 'call') {
+    const need = gs.curBet - p.bet
+    const pay = Math.min(need, p.stack)
+    p.stack -= pay; p.bet += pay; p.totalBet += pay
+    if (p.stack === 0) p.allIn = true
+    p.acted = true
+    log(N(p) + (p.allIn ? ' 全下跟注 $' + pay : ' 跟注 $' + pay))
+    beep(700, .05)
+    return
+  }
+  const to = Math.min(a.to, p.bet + p.stack)
+  if (to <= gs.curBet) { applyAction(i, { t: 'call' }); return }
+  const old = gs.curBet
+  const wasBet = old === 0
+  const pay = to - p.bet
+  p.stack -= pay; p.bet = to; p.totalBet += pay
+  if (p.stack === 0) p.allIn = true
+  const full = to >= old + gs.minRaise
+  gs.curBet = to
+  gs.minRaise = wasBet ? to : (to - old)
+  p.acted = true
+  if (full) gs.players.forEach(o => { if (o !== p && o.seated && !o.folded && o.stack > 0) o.acted = false })
+  const verb = p.allIn ? '全下' : (wasBet ? '下注' : '加注到')
+  log(N(p) + ' ' + verb + ' $' + to)
+  beep(900, .06)
+}
+
+function roundComplete() {
+  return gs.players.every(p => !p.seated || p.folded || p.stack === 0 || (p.acted && p.bet === gs.curBet))
+}
+
+async function bettingRound() {
+  let guard = 0
+  while (guard++ < 200) {
+    if (gs.inHandCount() <= 1 || roundComplete()) return
+    const ctl = gs.controllerOf(gs.curActor)
+    if (ctl === 'none') { gs.curActor = gs.nextActorAfter(gs.curActor); continue }
+    render(gs)
+    if (ctl === 'local') {
+      let a
+      if (typeof window !== 'undefined' && window.__auto) {
+        await delay(20)
+        a = window.__auto(gs.players[gs.curActor], gs.curBet - gs.players[gs.curActor].bet)
+      } else {
+        a = await waitLocalAction(gs.curActor, CONFIG.TURN_MS)
+      }
+      applyAction(gs.curActor, a)
+    } else if (ctl === 'remote') {
+      const a = await waitRemoteAction(gs.curActor, CONFIG.TURN_MS)
+      applyAction(gs.curActor, a)
+    } else {
+      await delay(600 + Math.random() * 800)
+      applyAction(gs.curActor, aiAction(gs.players[gs.curActor]))
+    }
+    gs.turnDeadline = 0
+    render(gs)
+    if (gs.inHandCount() <= 1) return
+    gs.curActor = gs.nextActorAfter(gs.curActor)
+  }
+}
+
+function checkFoldEnd() {
+  if (gs.inHandCount() <= 1) { gs.curActor = -1; return true }
+  return false
+}
+
+function closeRoad() {
+  gs.players.forEach(p => { if (p.seated) { gs.potCarried += p.bet; p.bet = 0 } })
+  gs.curBet = 0
+  gs.minRaise = gs.curBlinds.bb
+  gs.players.forEach(p => { p.acted = false })
+}
+
+function buildPots() {
+  const levels = [...new Set(gs.players.map(p => p.totalBet))].filter(v => v > 0).sort((a, b) => a - b)
+  const pots = []
+  let prev = 0
+  for (const L of levels) {
+    const contrib = p => Math.max(0, Math.min(p.totalBet, L) - Math.min(p.totalBet, prev))
+    let amt = 0
+    gs.players.forEach(p => amt += contrib(p))
+    if (amt === 0) { prev = L; continue }
+    const eligible = gs.players.filter(p => p.seated && !p.folded && p.totalBet >= L)
+    if (eligible.length) pots.push({ amt, eligible })
+    else gs.players.forEach(p => { if (p.folded && contrib(p) > 0) p.stack += contrib(p) })
+    prev = L
+  }
+  return pots
+}
+
+function awardFoldWin() {
+  const w = gs.players.find(p => p.seated && !p.folded)
+  const amt = gs.potTotal()
+  w.stack += amt
+  w.win = true
+  gs.players.forEach(p => { p.bet = 0; p.totalBet = 0 })
+  gs.potCarried = 0
+  gs.curBet = 0
+  setStage('摊牌')
+  log(N(w) + ' 收下底池 $' + amt + '（其余玩家弃牌）')
+  banner(w.name + ' 赢得 $' + amt + '（其他人弃牌）', 3200)
+  render(gs)
+  beep(1040, .1)
+}
+
+function showdown() {
+  setStage('摊牌')
+  const contenders = gs.players.filter(p => p.seated && !p.folded)
+  contenders.forEach(p => { p.revealed = true })
+  render(gs)
+  const pots = buildPots()
+  const scores = {}
+  contenders.forEach(p => scores[p.i] = bestHand(p.hand.concat(gs.board)))
+  const winners = new Map()
+  let main = null
+  pots.forEach(pot => {
+    let best = null, ws = []
+    pot.eligible.forEach(p => {
+      const s = scores[p.i]
+      if (!best || cmpScores(s, best) > 0) { best = s; ws = [p] }
+      else if (cmpScores(s, best) === 0) ws.push(p)
+    })
+    const each = Math.floor(pot.amt / ws.length)
+    ws.forEach((w, k) => {
+      const got = each + (k === 0 ? pot.amt % ws.length : 0)
+      w.stack += got
+      w.win = true
+      const rec = winners.get(w.i) || { amt: 0, hand: '' }
+      rec.amt += got
+      rec.hand = rec.hand || handName(best)
+      winners.set(w.i, rec)
+    })
+    if (!main || pot.amt > main.amt) main = { amt: pot.amt, hand: handName(best) }
+  })
+  gs.players.forEach(p => { p.bet = 0; p.totalBet = 0 })
+  gs.potCarried = 0
+  gs.curBet = 0
+  contenders.forEach(p => {
+    if (winners.has(p.i)) log(N(p) + ' 赢得 $' + winners.get(p.i).amt + '（' + handName(scores[p.i]) + '）')
+    else log(N(p) + ' ' + handName(scores[p.i]) + '，落败')
+  })
+  const names = [...winners.keys()].map(i => gs.players[i].name).join('、')
+  banner(names + ' 赢得 $' + main.amt + ' · ' + main.hand, 3600)
+  beep(1040, .1)
+  setTimeout(() => beep(1560, .18), 130)
+}
+
+async function playHand() {
+  gs.handNum++
+  gs.resetForNewHand()
+  setStage('翻牌前')
+  gs.postBlind(gs.sbIdx, gs.curBlinds.sb, '小盲')
+  gs.postBlind(gs.bbIdx, gs.curBlinds.bb, '大盲')
+  gs.curBet = Math.max(gs.players[gs.sbIdx].bet, gs.players[gs.bbIdx].bet)
+  gs.minRaise = gs.curBlinds.bb
+  render(gs)
+  log('<span class="sep">— 第 ' + gs.handNum + ' 局 · 盲注 $' + gs.curBlinds.sb + '/$' + gs.curBlinds.bb + ' · ' + gs.players.filter(p => p.seated && !p.elim).length + ' 人在座 —</span>')
+  await dealHoles()
+  await delay(350)
+  gs.curActor = gs.nextActorAfter(gs.bbIdx)
+  await bettingRound()
+  if (checkFoldEnd()) { awardFoldWin(); return endHand() }
+  closeRoad()
+  const streets = [
+    { n: 3, name: '翻牌' },
+    { n: 1, name: '转牌' },
+    { n: 1, name: '河牌' }
+  ]
+  for (const st of streets) {
+    if (gs.canActCount() > 1) {
+      await dealCards(st.n)
+      setStage(st.name)
+      await delay(300)
+      gs.curActor = gs.nextActorAfter(gs.dealerIdx)
+      await bettingRound()
+      if (checkFoldEnd()) { awardFoldWin(); return endHand() }
+      closeRoad()
+    } else {
+      await dealCards(st.n)
+      setStage(st.name)
+      await delay(700)
+    }
+  }
+  showdown()
+  return endHand()
+}
+
+function clearSeat(p) {
+  p.seated = false; p.remote = false; p.leaving = false
+  p.elim = true; p.stack = 0; p.hand = []; p.bet = 0; p.totalBet = 0
+  p.folded = true; p.allIn = false; p.win = false; p.revealed = false
+  p.name = ''; p.blind = ''
+}
+
+function promoteSpectators() {
+  if (!gs.net || gs.net.mode !== 'host' || !gs.net.spectators || !gs.net.spectators.length) return
+  const before = gs.net.spectators.length
+  gs.net.spectators = gs.net.spectators.filter(conn => {
+    const seatIdx = gs.players.findIndex((p, i) => i > 0 && !p.seated)
+    if (seatIdx === -1) return true
+    seatRemotePlayer(conn, seatIdx)
+    return false
+  })
+  if (gs.net.spectators.length < before) render(gs)
+}
+
+function endHand() {
+  return new Promise(async (res) => {
+    gs.curActor = -1
+    gs.players.forEach(p => {
+      if (p.stack <= 0 && p.seated && !p.elim) { p.elim = true; log(N(p) + ' 出局') }
+    })
+    gs.players.forEach(p => {
+      if (p.leaving) { log('<b style="color:#c7d0da">' + escapeHtml(p.name) + '</b> 离开了座位'); clearSeat(p) }
+    })
+    promoteSpectators()
+    render(gs)
+    await delay(2600)
+    const alive = gs.players.filter(p => p.seated && !p.elim)
+    if (gs.net && gs.net.mode === 'host') {
+      if (alive.length <= 0) { gameOverScreen(false); res('over'); return }
+      if (alive.length === 1 && alive[0].i === 0) { gameOverScreen(true); res('over'); return }
+      if (!gs.players[0].seated || gs.players[0].elim) { gameOverScreen(false); res('over'); return }
+    } else {
+      if (!gs.players[0].seated || gs.players[0].elim) { gameOverScreen(false); res('over'); return }
+      if (alive.length === 1) { gameOverScreen(true); res('over'); return }
+    }
+    showNextHandOverlay()
+    await waitForNextHand()
+    hideOverlay()
+    res('next')
+  })
+}
+
+async function runGame() {
+  gs.gameRunning = true
+  gs.overInfo = null
+  while (true) {
+    const r = await playHand()
+    if (r !== 'next') break
+  }
+}
+
+function showNextHandOverlay() {
+  if (gs.net && gs.net.mode === 'client') return
+  showOverlay()
+  const rows = gs.players.filter(p => p.seated).map(p =>
+    '<span><b style="color:' + escapeHtml(p.color) + '">' + escapeHtml(p.name) + '</b>　$' + p.stack + (p.elim ? '（出局）' : '') + '</span>'
+  ).join('')
+  dom.overlay.innerHTML = '<div class="ovcard">' +
+    '<h2>第 ' + gs.handNum + ' 局结束</h2>' +
+    '<div class="seatlist">' + rows + '</div>' +
+    '<button class="btn bigbtn" id="btn-next">开始第 ' + (gs.handNum + 1) + ' 局</button>' +
+    '</div>'
+  $('#btn-next').onclick = () => {
+    const r = gs.nextHandResolver
+    gs.nextHandResolver = null
+    hideOverlay()
+    if (r) r()
+  }
+}
+
+function waitForNextHand() {
+  return new Promise(r => { gs.nextHandResolver = r })
+}
+
+function gameOverScreen(win) {
+  gs.gameRunning = false
+  gs.overInfo = { win, hands: gs.handNum, winner: gs.players.filter(p => p.seated && !p.elim).map(p => p.name).join('、') }
+  showOverlay()
+  dom.overlay.innerHTML = '<div class="ovcard">' +
+    '<h1>' + (win ? '你赢了！' : '游戏结束') + '</h1>' +
+    '<p>' + (win ? '其他牌手全部出局，这场对局由你拿下。' : '你的筹码用完了，再接再厉！') + '</p>' +
+    '<p class="dim">共进行 ' + gs.handNum + ' 局 · 你的剩余筹码 $' + (gs.players[0] && gs.players[0].seated ? gs.players[0].stack : 0) + '</p>' +
+    '<button class="btn bigbtn" id="btn-again">重新开始</button>' +
+    '</div>'
+  $('#btn-again').onclick = () => {
+    hideOverlay()
+    if (gs.net && gs.net.mode === 'host') { resetGame(); runGame() }
+    else { startSolo(getName('你')) }
+  }
+  render(gs)
+}
+
+function resetGame() {
+  gs.players.forEach(p => {
+    if (p.seated) {
+      p.stack = CONFIG.START_STACK; p.elim = false; p.hand = []; p.bet = 0; p.totalBet = 0
+      p.folded = false; p.allIn = false; p.acted = false; p.blind = ''
+      p.win = false; p.revealed = false; p.leaving = false
+    }
+  })
+  gs.handNum = 0
+  gs.dealerIdx = -1
+  gs.curActor = -1
+  gs.potCarried = 0
+  gs.curBet = 0
+  gs.overInfo = null
+  gs.board = []
+  gs.logLines = []
+  dom.logdockBody.innerHTML = ''
+  dom.dockLatest.innerHTML = ''
+  syncBoard(gs)
+  render(gs)
+}
+
+function startSolo(name) {
+  gs.net = null
+  hideOverlay()
+  initSeats('solo', name || getName('你'))
+  runGame()
+}
+
+function initSeats(mode, myName) {
+  if (mode === 'solo') {
+    gs.players = AI_DEFS.map((d, i) => {
+      const s = blankSeat(i)
+      s.seated = true; s.elim = false; s.folded = false
+      s.name = i === 0 ? (myName || '你') : d.name
+      s.color = d.color; s.aggr = d.aggr || 0; s.tight = d.tight || 0
+      s.isAI = i !== 0
+      s.stack = CONFIG.START_STACK
+      return s
+    })
+  } else {
+    gs.players = []
+    for (let i = 0; i < CONFIG.MAX_SEATS; i++) {
+      const s = blankSeat(i)
+      if (i === 0) {
+        s.seated = true; s.elim = false; s.folded = false
+        s.name = myName || '房主'
+        s.color = SEAT_COLORS[0]
+        s.stack = CONFIG.START_STACK
+      }
+      gs.players.push(s)
+    }
+  }
+  gs.localIdx = 0
+  gs.handNum = 0
+  gs.dealerIdx = -1
+  gs.curActor = -1
+  gs.stageLabel = ''
+  gs.potCarried = 0
+  gs.curBet = 0
+  gs.overInfo = null
+  gs.snapshotWaitingNext = false
+  gs.pendingAction = false
+  gs.board = []
+  gs.logLines = []
+  dom.logdockBody.innerHTML = ''
+  dom.dockLatest.innerHTML = ''
+  dom.dockLatest.classList.remove('hl')
+  dom.logdock.classList.remove('collapsed')
+  dom.btnDockToggle.textContent = '收起'
+  syncBoard(gs)
+  setStage('')
+  render(gs)
+}
+
+function getName(def) {
+  const el = document.querySelector('#inp-name')
+  let n = ''
+  if (el) n = (el.value || '').trim()
+  if (!n && typeof localStorage !== 'undefined') {
+    try { n = (localStorage.getItem('thp-name') || '').trim() } catch (e) {}
+  }
+  return sanitizeName(n, def)
+}
+
+async function createRoom(name) {
+  showNetPanel('正在创建房间…')
+  let Peer
+  try { Peer = await loadPeerJS() }
+  catch (e) { showNetPanel('' + (e.message || e), true); return }
+  const code = genCode()
+  const peer = new Peer(CONFIG.PEER_PREFIX + code)
+  let opened = false
+  peer.on('open', () => {
+    opened = true
+    gs.net = { mode: 'host', peer, code, conns: [], spectators: [], hostName: name }
+    initSeats('host', name)
+    refreshHostLobby()
+  })
+  peer.on('error', err => {
+    if (!opened) showNetPanel('房间创建失败：' + peerErrText(err), true)
+  })
+  peer.on('connection', conn => {
+    conn.on('data', d => hostHandleData(conn, d))
+    conn.on('close', () => hostDropConn(conn))
+    conn.on('error', () => hostDropConn(conn))
+  })
+}
+
+function peerErrText(err) {
+  const t = err && err.type
+  if (t === 'peer-unavailable') return '找不到该房间'
+  if (t === 'unavailable-id') return '房间码被占用，请重试'
+  if (t === 'network' || t === 'server-error' || t === 'socket-error') return '无法连接联机服务器（需外网）'
+  if (t === 'browser-incompatible') return '浏览器不支持 WebRTC'
+  return (err && err.message) || '未知错误'
+}
+
+function showNetPanel(msg, withBack) {
+  showOverlay()
+  dom.overlay.innerHTML = '<div class="ovcard">' +
+    '<h2>联机</h2>' +
+    '<p>' + escapeHtml(msg) + '</p>' +
+    (withBack ? '<button class="btn bigbtn" id="btn-back">返回首页</button>' : '') +
+    '</div>'
+  if (withBack) $('#btn-back').onclick = () => {
+    if (gs.net) { try { gs.net.peer && gs.net.peer.destroy() } catch (e) {} }
+    gs.net = null
+    showStartOverlay()
+  }
+}
+
+function canJoin() {
+  if (!gs.net || gs.net.mode !== 'host') return false
+  if (!gs.gameRunning) return true
+  return !!gs.nextHandResolver
+}
+
+function seatRemotePlayer(conn, seatIdx) {
+  conn.seat = seatIdx
+  conn.name = sanitizeName(conn.name || '客人')
+  const p = gs.players[seatIdx]
+  p.seated = true; p.elim = false; p.folded = true
+  p.remote = true
+  p.name = conn.name
+  p.color = SEAT_COLORS[seatIdx % SEAT_COLORS.length]
+  p.stack = CONFIG.START_STACK
+  try { conn.send({ type: 'welcome', seat: seatIdx }) } catch (e) {}
+  gs.net.conns.push(conn)
+  if (gs.gameRunning) {
+    log('<b style="color:' + escapeHtml(p.color) + '">' + escapeHtml(p.name) + '</b> 加入，下一局上场')
+  }
+}
+
+function hostHandleData(conn, d) {
+  if (!gs.net || gs.net.mode !== 'host' || !d) return
+  if (d.type === 'join') {
+    if (conn.seat !== undefined) return
+    conn.name = sanitizeName(d.name)
+    const seatIdx = gs.players.findIndex((p, i) => i > 0 && !p.seated)
+    if (seatIdx === -1) {
+      conn.seat = -1
+      gs.net.spectators.push(conn)
+      try { conn.send({ type: 'welcome', seat: -1, spectator: true }) } catch (e) {}
+    } else {
+      seatRemotePlayer(conn, seatIdx)
+    }
+    render(gs)
+    refreshHostLobby()
+  } else if (d.type === 'action' && conn.seat !== undefined && conn.seat >= 0) {
+    if (gs.curActor === conn.seat && gs.pendingRemote[conn.seat]) {
+      gs.pendingRemote[conn.seat](d.a)
+    }
+  }
+}
+
+function hostDropConn(conn) {
+  if (!gs.net || gs.net.mode !== 'host') return
+  if (conn.seat === -1) {
+    gs.net.spectators = gs.net.spectators.filter(c => c !== conn)
+    render(gs)
+    refreshHostLobby()
+    return
+  }
+  gs.net.conns = gs.net.conns.filter(c => c !== conn)
+  if (conn.seat !== undefined && conn.seat > 0) {
+    const p = gs.players[conn.seat]
+    if (p && p.seated && p.remote) {
+      if (canJoin()) {
+        log('<b style="color:#c7d0da">' + escapeHtml(p.name) + '</b> 离开了座位')
+        clearSeat(p)
+      } else {
+        p.leaving = true
+        if (gs.pendingRemote[conn.seat]) gs.pendingRemote[conn.seat]({ t: 'fold' })
+      }
+    }
+  }
+  render(gs)
+  refreshHostLobby()
+}
+
+function refreshHostLobby() {
+  if (!gs.net || gs.net.mode !== 'host' || gs.gameRunning) return
+  showOverlay()
+  const seatRows = gs.players.map((p, i) => {
+    if (i === 0) return '<span><b style="color:' + escapeHtml(gs.net.hostName || '房主') + '">' + escapeHtml(gs.net.hostName || '房主') + '</b><span>房主 · 就绪</span></span>'
+    if (p.seated) return '<span><b style="color:' + escapeHtml(p.color) + '">' + escapeHtml(p.name) + '</b><span>已入座</span></span>'
+    return '<span><b style="color:#7f909f">空位 ' + i + '</b><span>等待加入</span></span>'
+  }).join('')
+  const spect = gs.net.spectators.length
+  const canStart = gs.players.filter(p => p.seated).length >= 2
+  dom.overlay.innerHTML = '<div class="ovcard">' +
+    '<h2>联机房间</h2>' +
+    '<p class="roomcode">' + escapeHtml(gs.net.code) + '</p>' +
+    '<p class="copyhint">点下方复制口令码，发给好友即可加入</p>' +
+    '<div class="seatlist">' + seatRows + '</div>' +
+    (spect ? '<p class="dim">另有 ' + spect + ' 位观众（满 8 座后自动观战）</p>' : '') +
+    '<button class="btn bigbtn" id="btn-copy">复制口令码</button>' +
+    '<button class="btn bigbtn" id="btn-start-net"' + (canStart ? '' : ' disabled') + '>' +
+    (canStart ? '开始牌局（' + gs.players.filter(p => p.seated).length + ' 人在座）' : '等待玩家加入（至少 2 人）') +
+    '</button>' +
+    '</div>'
+  $('#btn-copy').onclick = () => { copyText(gs.net.code) }
+  $('#btn-start-net').onclick = () => {
+    promoteSpectators()
+    if (gs.players.filter(p => p.seated).length < 2) return
+    hideOverlay()
+    resetGame()
+    runGame()
+  }
+}
+
+async function joinRoom(name, code) {
+  showNetPanel('正在连接房间 ' + code + ' …')
+  let Peer
+  try { Peer = await loadPeerJS() }
+  catch (e) { showNetPanel('' + (e.message || e), true); return }
+  const peer = new Peer()
+  peer.on('open', () => {
+    const conn = peer.connect(CONFIG.PEER_PREFIX + code, { reliable: true })
+    const failTimer = setTimeout(() => showNetPanel('连接超时：检查口令码与网络', true), 15000)
+    conn.on('open', () => {
+      clearTimeout(failTimer)
+      gs.net = { mode: 'client', peer, conn, code, seat: undefined, myName: name }
+      try { conn.send({ type: 'join', name }) } catch (e) {}
+    })
+    conn.on('data', d => clientHandleData(d))
+    conn.on('close', () => clientDisconnected())
+    conn.on('error', () => clientDisconnected())
+  })
+  peer.on('error', err => showNetPanel('加入失败：' + peerErrText(err), true))
+}
+
+function clientHandleData(d) {
+  if (!d || !gs.net || gs.net.mode !== 'client') return
+  if (d.type === 'welcome') {
+    gs.net.seat = d.seat
+    gs.net.spectator = !!d.spectator
+    showClientWaiting()
+  } else if (d.type === 'state') {
+    applySnapshot(d.s)
+  }
+}
+
+function clientDisconnected() {
+  if (!gs.net || gs.net.mode !== 'client') return
+  const name = gs.net.myName || getName('玩家')
+  const code = gs.net.code
+  showOverlay()
+  dom.overlay.innerHTML = '<div class="ovcard">' +
+    '<h2>连接断开</h2>' +
+    '<p>与房间 <b>' + escapeHtml(code) + '</b> 的连接已断开</p>' +
+    '<button class="btn bigbtn" id="btn-reconn">重新连接</button>' +
+    '<button class="btn bigbtn" id="btn-back-home">返回首页</button>' +
+    '</div>'
+  $('#btn-reconn').onclick = () => {
+    try { gs.net.peer && gs.net.peer.destroy() } catch (e) {}
+    gs.net = null
+    if (name && code) joinRoom(name, code)
+  }
+  $('#btn-back-home').onclick = () => {
+    try { gs.net.peer && gs.net.peer.destroy() } catch (e) {}
+    gs.net = null
+    showStartOverlay()
+  }
+}
+
+function currentTurnLeftMs() {
+  if (gs.net && gs.net.mode === 'client') {
+    if (!clientTurnLeft || clientTurnLeft.ms <= 0) return 0
+    return Math.max(0, clientTurnLeft.ms - (Date.now() - clientTurnLeft.at))
+  }
+  return gs.turnDeadline ? Math.max(0, gs.turnDeadline - Date.now()) : 0
+}
+
+function renderTurnTimer() {
+  if (!gs.players.length || gs.curActor < 0 || !gs.players[gs.curActor] || !gs.players[gs.curActor].seated) return
+  const left = currentTurnLeftMs()
+  const sec = Math.ceil(left / 1000)
+  const show = left > 0
+  const so = getSeatedOpponents(gs)
+  so.forEach((p, k) => {
+    const box = document.getElementById('opp-' + k)
+    if (!box) return
+    const st = box.querySelector('.ostack')
+    if (show && gs.curActor === p.i) {
+      st.textContent = sec + 's'
+      st.className = 'ostack timing' + (sec <= 10 ? ' low' : '')
+    } else if (st.classList.contains('timing')) {
+      st.className = 'ostack'
+      st.textContent = p.elim ? '出局' : '$' + p.stack
+    }
+  })
+  const mt = document.querySelector('#me-timer')
+  if (mt) {
+    if (show && gs.curActor === gs.localIdx && gs.localIdx >= 0) {
+      mt.textContent = '剩余 ' + sec + ' 秒'
+      mt.className = 'mtimer' + (sec <= 10 ? ' low' : '')
+    } else {
+      mt.textContent = ''
+    }
+  }
+}
+
+function snapshotFor(seat) {
+  return {
+    v: 3, yourSeat: seat,
+    started: gs.gameRunning,
+    waitingNext: !!gs.nextHandResolver,
+    over: gs.overInfo,
+    handNum: gs.handNum, dealerIdx: gs.dealerIdx, curBlinds: gs.curBlinds, curBet: gs.curBet,
+    minRaise: gs.minRaise, curActor: gs.curActor, potCarried: gs.potCarried,
+    stage: gs.stageLabel, board: gs.board,
+    turnLeft: gs.turnDeadline ? Math.max(0, gs.turnDeadline - Date.now()) : 0,
+    utg: gs.utgIdx,
+    spectCount: gs.net.spectators ? gs.net.spectators.length : 0,
+    players: gs.players.map(p => ({
+      i: p.i, seated: p.seated, name: p.name, color: p.color, stack: p.stack, bet: p.bet,
+      totalBet: p.totalBet, folded: p.folded, allIn: p.allIn, elim: p.elim,
+      blind: p.blind, win: !!p.win, revealed: !!p.revealed, remote: !!p.remote,
+      handHidden: !((p.i === seat && p.seated) || p.revealed),
+      hand: ((p.i === seat && p.seated) || p.revealed) ? p.hand : []
+    })),
+    logLines: gs.logLines.slice(-40),
+    banner: gs.bannerState
+  }
+}
+
+function netBroadcast() {
+  if (!gs.net || gs.net.mode !== 'host') return
+  const all = gs.net.conns.concat(gs.net.spectators)
+  all.forEach(c => {
+    try { if (c.open !== false) c.send({ type: 'state', s: snapshotFor(c.seat) }) } catch (e) {}
+  })
+}
+
+function applySnapshot(s) {
+  if (!s || !gs.net || gs.net.mode !== 'client') return
+  gs.localIdx = (typeof s.yourSeat === 'number' && s.yourSeat >= 0) ? s.yourSeat : -1
+  gs.players = s.players
+  gs.board = s.board || []
+  gs.curBet = s.curBet; gs.minRaise = s.minRaise; gs.curActor = s.curActor
+  gs.dealerIdx = s.dealerIdx; gs.handNum = s.handNum; gs.curBlinds = s.curBlinds
+  gs.potCarried = s.potCarried
+  gs.stageLabel = s.stage || ''
+  gs.snapshotWaitingNext = !!s.waitingNext
+  gs.pendingAction = false
+  clientTurnLeft = { ms: s.turnLeft || 0, at: Date.now() }
+  gs.utgIdx = (typeof s.utg === 'number') ? s.utg : -1
+  dom.hudStage.textContent = gs.stageLabel
+  rebuildLog(s.logLines || [])
+  if (getOppCount() !== (gs.players.filter(p => p.seated && p.i !== gs.localIdx).length)) {
+    initRenderer(gs)
+  }
+  if (s.over) { showClientOver(s.over); return }
+  if (!s.started) { showClientWaiting(); return }
+  hideOverlay()
+  render(gs)
+  if (s.banner) banner(s.banner.text, s.banner.ms)
+}
+
+function showClientWaiting() {
+  showOverlay()
+  const rows = gs.players.map((p, i) => {
+    if (!p.seated) return '<span><b style="color:#7f909f">空位 ' + i + '</b><span>等待加入</span></span>'
+    const you = i === gs.localIdx ? '【你】' : ''
+    return '<span><b style="color:' + escapeHtml(p.color) + '">' + escapeHtml(you + p.name) + '</b><span>' + (p.stack > 0 ? '$' + p.stack : '就绪') + '</span></span>'
+  }).join('')
+  dom.overlay.innerHTML = '<div class="ovcard">' +
+    '<h2>' + (gs.localIdx < 0 ? '已加入（观战）' : '已加入房间 ' + (gs.net && gs.net.code || '')) + '</h2>' +
+    '<div class="seatlist">' + rows + '</div>' +
+    '<p class="dim">' + (gs.localIdx < 0 ? '当前观战中 · 出现空位时下一局自动上场' : '房主开始牌局后自动进入 · 你的座位在下方') + '</p>' +
+    '</div>'
+}
+
+function showClientOver(over) {
+  showOverlay()
+  dom.overlay.innerHTML = '<div class="ovcard">' +
+    '<h1>牌局结束</h1>' +
+    '<p>' + (over.winner ? '<b>' + escapeHtml(over.winner) + '</b> 赢下了整场对局。' : '整场对局已结束。') + '</p>' +
+    '<p class="dim">共 ' + (over.hands || gs.handNum) + ' 局 · 房主重新开局时自动跟进，或刷新页面重新加入</p>' +
+    '</div>'
+}
+
+function showStartOverlay() {
+  showOverlay()
+  let saved = ''
+  try { saved = (localStorage.getItem('thp-name') || '').trim() } catch (e) {}
+  dom.overlay.innerHTML = '<div class="ovcard">' +
+    '<h1>德州扑克</h1>' +
+    '<p>无限注德州扑克 · 单机或口令码联机<br>起始筹码 $2500 · 盲注 $25/$50（每 8 局升级）</p>' +
+    '<div class="joinrow">' +
+    '<input id="inp-name" maxlength="8" placeholder="你的昵称（同桌可见）" value="' + escapeHtml(saved) + '">' +
+    '</div>' +
+    '<button class="btn bigbtn" id="btn-solo">单机对战 AI</button>' +
+    '<button class="btn bigbtn" id="btn-host">创建联机房间</button>' +
+    '<div class="joinrow">' +
+    '<input id="inp-code" maxlength="5" placeholder="口令码" inputmode="latin" autocomplete="off">' +
+    '<button class="btn bigbtn" id="btn-join" style="margin-top:0">加入房间</button>' +
+    '</div>' +
+    '<p class="dim">创建房间后把 5 位口令码发给好友<br>牌局进行中也可加入：有空位下一局上场，满座可观战<br>联机需双方都能访问外网</p>' +
+    '<div id="net-status" class="netstatus"></div>' +
+    '</div>'
+  const nameEl = $('#inp-name'), codeEl = $('#inp-code')
+  nameEl.oninput = () => {
+    try { localStorage.setItem('thp-name', (nameEl.value || '').trim()) } catch (e) {}
+  }
+  codeEl.oninput = () => {
+    codeEl.value = (codeEl.value || '').toUpperCase().replace(/[^A-Z0-9]/g, '')
+  }
+  nameEl.onkeydown = e => { if (e.key === 'Enter') codeEl.focus() }
+  codeEl.onkeydown = e => { if (e.key === 'Enter') $('#btn-join').click() }
+  $('#btn-solo').onclick = () => { startSolo(getName('你')) }
+  $('#btn-host').onclick = () => { createRoom(getName('房主')) }
+  $('#btn-join').onclick = () => {
+    const code = (codeEl.value || '').trim().toUpperCase()
+    if (code.length < 4) { $('#net-status').textContent = '请输入完整口令码'; return }
+    joinRoom(getName('玩家'), code)
+  }
+}
+
+function resolveHuman(a) {
+  if (!gs.humanResolver) return
+  const r = gs.humanResolver
+  gs.humanResolver = null
+  render(gs)
+  r(a)
+}
+
+function submitAction(a) {
+  if (gs.net && gs.net.mode === 'client') {
+    if (!gs.net.conn || gs.net.conn.open === false) return
+    gs.pendingAction = true
+    try { gs.net.conn.send({ type: 'action', a }) } catch (e) {}
+    render(gs)
+  } else {
+    resolveHuman(a)
+  }
+}
+
+function scaleStage() {
+  const s = Math.min(window.innerWidth / (CONFIG.DES_W + 8), window.innerHeight / (CONFIG.DES_H + 8), 1.3)
+  dom.stage.style.transform = 'scale(' + s + ')'
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  cacheDom()
+  dom.btnFold.onclick = () => submitAction({ t: 'fold' })
+  dom.btnCall.onclick = () => {
+    const p = gs.localIdx >= 0 ? gs.players[gs.localIdx] : null
+    if (!p) return
+    const toCall = gs.curBet - p.bet
+    submitAction({ t: toCall <= 0 ? 'check' : 'call' })
+  }
+  dom.btnRaise.onclick = () => submitAction({ t: 'raise', to: +dom.range.value })
+  dom.range.oninput = () => updateRaiseLabel(gs)
+  document.querySelectorAll('#raiserow .qp').forEach(b => {
+    b.onclick = () => {
+      const pot = gs.potTotal()
+      let v
+      if (b.dataset.m === 'min') v = +dom.range.min
+      else if (b.dataset.m === 'half') v = gs.curBet + Math.round(pot * 0.5 / 5) * 5
+      else if (b.dataset.m === 'pot') v = gs.curBet + pot
+      else v = +dom.range.max
+      v = Math.min(+dom.range.max, Math.max(+dom.range.min, Math.round(v / 5) * 5))
+      dom.range.value = v
+      updateRaiseLabel(gs)
+    }
+  })
+  dom.logdockHead.onclick = () => {
+    const collapsed = dom.logdock.classList.toggle('collapsed')
+    dom.btnDockToggle.textContent = collapsed ? '展开' : '收起'
+  }
+  dom.hudRoom.onclick = () => { if (gs.net && gs.net.code) copyText(gs.net.code) }
+  window.addEventListener('resize', scaleStage)
+  scaleStage()
+  showStartOverlay()
+  setInterval(renderTurnTimer, 300)
+})
+
+</script>
+</body>
+</html>
