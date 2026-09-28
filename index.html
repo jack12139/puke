@@ -1293,11 +1293,11 @@ function renderNextOverlay(){
   const meReady = localIdx >= 0 && readyNext[localIdx];
   ov.innerHTML = '<div class="ovcard">' +
     '<h2>第 ' + handNum + ' 局结束</h2>' +
+    '<button class="btn bigbtn" id="btn-next"' + (meReady ? ' disabled' : '') + '>' + (meReady ? '已准备 · 等待其他玩家' : '准备下一局') + '</button>' +
     res +
     '<div class="seatlist">' + rows + '</div>' +
     '<p class="dim">所有人准备后开始下一局 · 已离开或离线的玩家不再等待</p>' +
     '<button class="btn bigbtn" id="btn-history">查看历史战绩</button>' +
-    '<button class="btn bigbtn" id="btn-next"' + (meReady ? ' disabled' : '') + '>' + (meReady ? '已准备 · 等待其他玩家' : '准备下一局') + '</button>' +
     '</div>';
   $('#btn-history').onclick = () => showHistoryOverlay();
   $('#btn-next').onclick = () => { if(nextHandResolver) markReady(localIdx); };
@@ -2154,20 +2154,21 @@ function showClientWaiting(){
     ? '<p class="winline">胜者：<b>' + handResult.names + '</b>' + (handResult.hand ? ' · ' + handResult.hand : '') + '<br>赢得 $' + handResult.amt + '（' + handResult.reason + '）</p>'
     : '';
   const headTitle = waiting ? '第 ' + Math.max(handNum, 1) + ' 局结束' : (localIdx < 0 ? '已加入（观战）' : '已加入房间 ' + (net && net.code || ''));
-  let tail;
+  let tail, readyBtn = '';
   if(waiting){
     const myReady = localIdx >= 0 && (readyNext[localIdx] || clientReadySent);
     const canReady = localIdx >= 0 && players[localIdx] && players[localIdx].seated && !players[localIdx].elim;
+    readyBtn = canReady
+      ? '<button class="btn bigbtn" id="btn-cready"' + (myReady ? ' disabled' : '') + '>' + (myReady ? '已准备' : '准备下一局') + '</button>'
+      : '';
     tail = '<p class="dim" id="next-count">所有人准备后开始下一局 · 已离开或离线的玩家不再等待</p>' +
-      (canReady
-        ? '<button class="btn bigbtn" id="btn-cready"' + (myReady ? ' disabled' : '') + '>' + (myReady ? '已准备' : '准备下一局') + '</button>'
-        : '') +
       '<button class="btn bigbtn" id="btn-chist">查看历史战绩</button>';
   }else{
     tail = '<p class="dim">' + (localIdx < 0 ? '当前观战中 · 出现空位时下一局自动上场' : '房主开始牌局后自动进入 · 你的座位在下方') + '</p>';
   }
   ov.innerHTML = '<div class="ovcard">' +
     '<h2>' + headTitle + '</h2>' +
+    readyBtn +
     res +
     '<div class="seatlist">' + rows + '</div>' +
     tail +
