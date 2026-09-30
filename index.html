@@ -140,6 +140,8 @@ body{background:radial-gradient(620px 420px at 50% 10%,#1d2a38 0%,#0c1016 70%);f
 .btn-fold{background:#7e2a33;color:#ffd9dd}
 .btn-call{background:#275e7e;color:#d9efff}
 .btn-raise{background:#b8860b;color:#fff6df;flex:1.6;font-size:18px;box-shadow:0 3px 10px rgba(184,134,11,.35)}
+.btn-raise.armed{background:linear-gradient(#ff8a8a,#c73e3e);color:#fff}
+.btn-call.armed{background:linear-gradient(#ff8a8a,#c73e3e);color:#fff}
 #raiserow{display:none;align-items:center;gap:8px}
 #raiserow.show{display:flex}
 #range{flex:1;accent-color:#ffd54a;height:36px;touch-action:none}
@@ -294,6 +296,9 @@ let lastSnapshot = null;
 let migrating = null;
 let pendingRemote = {};
 let pendingAction = false;
+let pendingActionFails = 0;
+let lastHostActivity = 0;
+let potsInfo = null;
 let gameRunning = false;
 let overInfo = null;
 let logLines = [];
@@ -418,7 +423,9 @@ function nextActorAfter(i){
   return i;
 }
 function blindSize(){
-  const lvl = Math.min(4, Math.floor(Math.max(0, handNum - 1) / 8));
+  let lvl = Math.floor(Math.max(0, handNum - 1) / 10);
+  if(handNum > 50) lvl = 4;
+  else if(lvl > 3) lvl = 3;
   const sb = cfg.sb * (2 ** lvl);
   return {sb, bb: sb * 2};
 }
@@ -558,10 +565,12 @@ function buildPots(){
 }
 // 纯逻辑区结束
 const $ = s => document.querySelector(s);
-function N(p){ return '<b style="color:' + p.color + '">' + p.name + '</b>'; }
-function newHistSession(){
-  histSession = Math.max(Date.now(), (histSession || 0) + 1);
-}
+function N(p){ return '<b style="color:' + p.color + '">' + escHtml(p.name) + '</b>'; }
+let _histCtr = 0;
+	function newHistSession(){
+		_histCtr++;
+		histSession = Date.now() + _histCtr;
+	}
 function recordHand(rec){
   rec.session = histSession;
   rec.when = Date.now();
@@ -573,7 +582,19 @@ function loadHist(){
     if(typeof localStorage !== 'undefined'){
       const raw = localStorage.getItem(HIST_KEY);
       if(raw){
-        const a = JSON.parse(raw);
+        let a;
+        try{ a = JSON.parse(raw); }catch(e){
+          a = [];
+          try{
+            const items = raw.replace(/^\[|\]$/g, '').split('},{');
+            for(let i = 0; i < items.length; i++){
+              let item = items[i];
+              if(i > 0) item = '{' + item;
+              if(i < items.length - 1) item = item + '}';
+              try{ const h = JSON.parse(item); if(h && typeof h.no === 'number') a.push(h); }catch(e2){}
+            }
+          }catch(e2){}
+        }
         if(Array.isArray(a)) return a.filter(h => h && typeof h.no === 'number');
       }
     }
@@ -609,10 +630,11 @@ function log(msg, cls){
   latest.innerHTML = msg;
   latest.classList.toggle('hl', cls === 'hl');
 }
+function escHtml(s){ return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 function rebuildLog(lines){
   logLines = (lines || []).map(x => (typeof x === 'string') ? {m: x, c: ''} : x).slice();
   const box = $('#logdock-body');
-  box.innerHTML = logLines.map(o => '<div' + (o.c ? ' class="' + o.c + '"' : '') + '>' + o.m + '</div>').join('');
+  box.innerHTML = logLines.map(o => '<div' + (o.c ? ' class="' + escHtml(o.c) + '"' : '') + '>' + o.m + '</div>').join('');
   box.scrollTop = box.scrollHeight;
   const latest = $('#dock-latest');
   latest.innerHTML = logLines.length ? logLines[logLines.length - 1].m : '';
@@ -807,14 +829,16 @@ function render(){
     me.classList.toggle('allin', p.allIn && !p.folded && !p.elim);
     me.querySelector('#me-info').innerHTML =
       (p.bet > 0 ? '<span class="pill">下注 $' + p.bet + '</span>' : '') +
-      '<b>' + p.name + '</b><span>筹码 $' + p.stack + '</span>' +
+      '<b>' + escHtml(p.name) + '</b><span>筹码 $' + p.stack + '</span>' +
       posTags(p).replace(/class="otag/g, 'class="otag memini') +
       (p.folded && !p.elim ? '<span class="mtag fk">已弃牌</span>' : '') +
       (p.elim ? '<span class="mtag">已出局</span>' : '') +
       '<span class="mtimer" id="me-timer"></span>';
     renderSlotCards(document.querySelectorAll('#me-cards .card'), p, true);
   }
-  $('#pot').textContent = '底池 $' + potTotal();
+  $('#pot').textContent = (potsInfo && potsInfo.length > 1)
+    ? '主池 $' + potsInfo[0] + ' + 边池 $' + potsInfo.slice(1).join(' + $')
+    : '底池 $' + potTotal();
   $('#hud-hand').textContent = '第 ' + Math.max(handNum, 1) + ' 局';
   $('#hud-blind').textContent = '盲注 $' + curBlinds.sb + '/' + curBlinds.bb;
   const rt = $('#hud-room');
@@ -833,6 +857,25 @@ function render(){
   checkAllinFx();
   netBroadcast();
 }
+let sliderTurnKey = '';
+let raiseConfirmArmed = false;
+let raiseConfirmTimer = null;
+let callConfirmArmed = false;
+let callConfirmTimer = null;
+function disarmRaiseConfirm(){
+  raiseConfirmArmed = false;
+  clearTimeout(raiseConfirmTimer);
+  raiseConfirmTimer = null;
+  const btn = $('#btn-raise');
+  if(btn) btn.classList.remove('armed');
+}
+function disarmCallConfirm(){
+  callConfirmArmed = false;
+  clearTimeout(callConfirmTimer);
+  callConfirmTimer = null;
+  const btn = $('#btn-call');
+  if(btn) btn.classList.remove('armed');
+}
 function renderActionBar(){
   if(!players.length) return;
   const p = localIdx >= 0 ? players[localIdx] : null;
@@ -841,13 +884,17 @@ function renderActionBar(){
   $('#ab').classList.toggle('myturn', isTurn);
   const fold = $('#btn-fold'), call = $('#btn-call'), raise = $('#btn-raise');
   if(!isTurn){
+    disarmRaiseConfirm();
+    disarmCallConfirm();
     fold.disabled = true; call.disabled = true; raise.disabled = true;
+    raise.textContent = '加注';
+    call.textContent = '等待';
     $('#raiserow').classList.remove('show');
     let who;
     if(localIdx < 0 || !p || !p.seated) who = '观战中';
     else if(snapshotWaitingNext) who = '等待房主开始下一局…';
     else if(curActor >= 0 && players[curActor] && players[curActor].seated)
-      who = '等待 <b style="color:' + players[curActor].color + '">' + players[curActor].name + '</b> 行动';
+      who = '等待 <b style="color:' + players[curActor].color + '">' + escHtml(players[curActor].name) + '</b> 行动';
     else who = (stageLabel || '');
     info.innerHTML = who + ' · 你的牌：<b>' + myHandName() + '</b> · 底池 $' + potTotal();
     return;
@@ -855,9 +902,11 @@ function renderActionBar(){
   const toCall = curBet - p.bet;
   fold.disabled = toCall <= 0;
   call.disabled = false;
-  call.textContent = toCall <= 0
-    ? '过牌'
-    : (toCall >= p.stack ? '全下跟注 $' + p.stack : '跟注 $' + toCall);
+  call.textContent = callConfirmArmed
+    ? '再点一次确认全下'
+    : (toCall <= 0
+      ? '过牌'
+      : (toCall >= p.stack ? '全下跟注 $' + p.stack : '跟注 $' + toCall));
   const canRaise = p.bet + p.stack > curBet;
   $('#raiserow').classList.toggle('show', canRaise);
   const rg = $('#range');
@@ -867,6 +916,13 @@ function renderActionBar(){
   min = Math.ceil(min / 5) * 5;
   if(min > max) min = max;
   rg.min = min; rg.max = max; rg.step = 5;
+  const turnKey = handNum + '|' + stageLabel + '|' + curBet + '|' + p.bet;
+  if(turnKey !== sliderTurnKey){
+    sliderTurnKey = turnKey;
+    disarmRaiseConfirm();
+    disarmCallConfirm();
+    rg.value = min;
+  }
   if(+rg.value < min || +rg.value > max) rg.value = min;
   updateRaiseLabel();
   raise.disabled = false;
@@ -878,6 +934,8 @@ function updateRaiseLabel(){
   const v = +$('#range').value;
   $('#range-val').textContent = '$' + v;
   const raise = $('#btn-raise');
+  if(raiseConfirmArmed && v < p.bet + p.stack) disarmRaiseConfirm();
+  if(raiseConfirmArmed){ raise.textContent = '再点一次确认全下'; return; }
   const word = v >= (p.bet + p.stack) ? '全下到' : (curBet === 0 ? '下注' : '加注到');
   raise.textContent = word + ' $' + v;
 }
@@ -888,12 +946,23 @@ function resolveHuman(a){
   renderActionBar();
   r(a);
 }
+let _pendingActionTimer = null;
 function submitAction(a){
   if(net && net.mode === 'client'){
-    if(!net.conn || net.conn.open === false) return;
+    if(!net.conn || net.conn.open === false){ showToast('连接已断开，无法发送操作'); return; }
     pendingAction = true;
-    try{ net.conn.send({type:'action', a}); }catch(e){}
+    try{ net.conn.send({type:'action', a}); }catch(e){ pendingAction = false; showToast('发送失败，请重试'); return; }
     renderActionBar();
+    clearTimeout(_pendingActionTimer);
+    _pendingActionTimer = setTimeout(() => {
+      if(pendingAction){
+        pendingAction = false;
+        pendingActionFails++;
+        showToast(pendingActionFails >= 2 ? '房主长时间无响应，正在尝试恢复连接…' : '房主无响应，请重新操作');
+        renderActionBar();
+        if(pendingActionFails >= 2 && net && net.mode === 'client' && net.conn && net.conn.open !== false) clientDisconnected();
+      }
+    }, 8000);
   }else{
     resolveHuman(a);
   }
@@ -911,6 +980,7 @@ function newHand(){
   board = [];
   potCarried = 0;
   curBet = 0;
+  potsInfo = null;
   dealerIdx = nextActiveFrom(dealerIdx);
   players.forEach(p => {
     if(p.seated){
@@ -951,8 +1021,8 @@ function waitLocalAction(i, timeoutMs){
     let done = false;
     const t = setTimeout(() => {
       const p = players[i];
-      const auto = (curBet - p.bet <= 0) ? {t:'check', auto:true} : {t:'fold', auto:true};
-      log(N(p) + ' 思考超时，自动' + (auto.t === 'check' ? '过牌' : '弃牌'));
+      const auto = (p && curBet - p.bet <= 0) ? {t:'check', auto:true} : {t:'fold', auto:true};
+      if(p) log(N(p) + ' 思考超时，自动' + (auto.t === 'check' ? '过牌' : '弃牌'));
       finish(auto);
     }, timeoutMs * ((window.__speed) || 1));
     function finish(a){
@@ -971,7 +1041,7 @@ function waitRemoteAction(i, timeoutMs){
     let done = false;
     const t = setTimeout(() => {
       const p = players[i];
-      const auto = (curBet - p.bet <= 0) ? {t:'check', remoteTimeout:true} : {t:'fold', remoteTimeout:true};
+      const auto = (p && curBet - p.bet <= 0) ? {t:'check', remoteTimeout:true} : {t:'fold', remoteTimeout:true};
       finish(auto);
     }, timeoutMs * ((window.__speed) || 1));
     function finish(a){
@@ -1019,6 +1089,7 @@ function roundComplete(){
 }
 function applyAction(i, a){
   const p = players[i];
+  if(!p || !p.seated) return;
   if(a.t === 'fold'){
     p.folded = true;
     log(N(p) + (a.remoteTimeout ? ' 思考超时，自动弃牌' : ' 弃牌'));
@@ -1050,7 +1121,7 @@ function applyAction(i, a){
   if(p.stack === 0) p.allIn = true;
   const full = to >= old + minRaise;
   curBet = to;
-  minRaise = wasBet ? to : (to - old);
+  if(full) minRaise = wasBet ? to : (to - old);
   p.acted = true;
   if(full) players.forEach(o => { if(o !== p && o.seated && !o.folded && o.stack > 0) o.acted = false; });
   const verb = p.allIn ? '全下' : (wasBet ? '下注' : '加注到');
@@ -1069,12 +1140,14 @@ function closeRoad(){
 }
 function awardFoldWin(){
   const w = players.find(p => p.seated && !p.folded && !p.elim);
+  if(!w) return;
   const amt = potTotal();
   w.stack += amt;
   w.win = true;
   players.forEach(p => { p.bet = 0; p.totalBet = 0; });
   potCarried = 0;
   curBet = 0;
+  potsInfo = null;
   setStage('摊牌');
   handResult = {names: w.name, hand: '', reason: '其余玩家弃牌', amt};
   recordHand({no: handNum, names: handResult.names, hand: '', reason: handResult.reason, amt: handResult.amt});
@@ -1089,6 +1162,7 @@ function showdown(){
   contenders.forEach(p => { p.revealed = true; });
   render();
   const pots = buildPots();
+  potsInfo = pots.length > 1 ? pots.map(pot => pot.amt) : null;
   const scores = {};
   contenders.forEach(p => scores[p.i] = bestHand(p.hand.concat(board)));
   const winners = new Map();
@@ -1112,6 +1186,7 @@ function showdown(){
     });
     if(!main || pot.amt > main.amt) main = {amt:pot.amt, hand:handName(best)};
   });
+  if(!main || !contenders.length) return;
   players.forEach(p => { p.bet = 0; p.totalBet = 0; });
   potCarried = 0;
   curBet = 0;
@@ -1120,9 +1195,14 @@ function showdown(){
     else log(N(p) + ' ' + handName(scores[p.i]) + '，落败');
   });
   const names = [...winners.keys()].map(i => players[i].name).join('、');
-  handResult = {names, hand: main.hand, reason: (winners.size > 1 ? '牌型完全相同，平分底池' : '最佳牌型获胜'), amt: main.amt};
-  recordHand({no: handNum, names, hand: main.hand, reason: handResult.reason, amt: main.amt});
-  banner(names + ' 赢得 $' + main.amt + ' · ' + main.hand, 3600);
+  let totalWon = 0;
+  winners.forEach(r => { totalWon += r.amt; });
+  let reason;
+  if(winners.size > 1) reason = pots.length === 1 ? '牌型完全相同，平分底池' : '主池与边池分别结算';
+  else reason = '最佳牌型获胜';
+  handResult = {names, hand: main.hand, reason, amt: totalWon};
+  recordHand({no: handNum, names, hand: main.hand, reason, amt: totalWon});
+  banner(names + ' 赢得 $' + totalWon + ' · ' + main.hand, 3600);
   beep(1040, .1);
   setTimeout(() => beep(1560, .18), 130);
 }
@@ -1174,13 +1254,26 @@ function pickNewHost(){
   const tied = alive.filter(p => p.stack === top);
   return tied[Math.floor(Math.random() * tied.length)].i;
 }
+function hostCandidateFrom(alive, handNum, dealerIdx){
+  if(!alive.length) return -1;
+  const top = Math.max.apply(null, alive.map(p => p.stack));
+  const tied = alive.filter(p => p.stack === top);
+  if(tied.length === 1) return tied[0].i;
+  const seedStr = handNum + '|' + dealerIdx + '|' + alive.map(p => p.stack + ':' + p.i).join(',');
+  let h = 2166136261;
+  for(let k = 0; k < seedStr.length; k++){
+    h ^= seedStr.charCodeAt(k);
+    h = Math.imul(h, 16777619);
+  }
+  return tied[(h >>> 0) % tied.length].i;
+}
 function transferHostIfNeeded(){
   if(!net || net.mode !== 'host') return false;
   const alive = players.filter(p => p.seated && !p.elim);
   if(alive.length < 2) return false;
   const hp = players[hostIdx];
   if(hp && hp.seated && !hp.elim) return false;
-  const ni = pickNewHost();
+  const ni = hostCandidateFrom(alive.filter(p => p.i !== hostIdx), handNum, dealerIdx);
   if(ni < 0) return false;
   hostIdx = ni;
   const nh = players[ni];
@@ -1190,6 +1283,7 @@ function transferHostIfNeeded(){
 }
 async function endHand(){
   curActor = -1;
+  if(!players.length) return 'next';
   players.forEach(p => { if(p.seated) p.handDelta = (p.stackAtStart != null) ? (p.stack - p.stackAtStart) : 0; });
   players.forEach(p => {
     if(p.stack <= 0 && p.seated && !p.elim){
@@ -1228,6 +1322,7 @@ async function runGame(){
   gameRunning = true;
   overInfo = null;
   while(true){
+    if(!players.length) break;
     const r = await playHand();
     if(r !== 'next') break;
   }
@@ -1278,7 +1373,7 @@ function nextRowHtml(p){
   else badge = '<span class="rdy wait">待准备</span>';
   const you = (p.i === localIdx) ? '【你】' : '';
   const hostMark = (p.i === hostIdx) ? '【房主】' : '';
-  return '<span><b style="color:' + p.color + '">' + you + hostMark + p.name + '</b><span class="dlt ' + cls + '">' + dstr + '</span>' + badge + '</span>';
+  return '<span><b style="color:' + p.color + '">' + you + hostMark + escHtml(p.name) + '</b><span class="dlt ' + cls + '">' + dstr + '</span>' + badge + '</span>';
 }
 function renderNextOverlay(){
   if(net && net.mode === 'client') return;
@@ -1288,12 +1383,12 @@ function renderNextOverlay(){
   ov.classList.add('bottom');
   const rows = players.filter(p => p.seated).map(p => nextRowHtml(p)).join('');
   const res = handResult
-    ? '<p class="winline">胜者：<b>' + handResult.names + '</b>' + (handResult.hand ? ' · ' + handResult.hand : '') + '<br>赢得 $' + handResult.amt + '（' + handResult.reason + '）</p>'
+    ? '<p class="winline">胜者：<b>' + escHtml(handResult.names) + '</b>' + (handResult.hand ? ' · ' + handResult.hand : '') + '<br>赢得 $' + handResult.amt + '（' + handResult.reason + '）</p>'
     : '';
   const meReady = localIdx >= 0 && readyNext[localIdx];
   ov.innerHTML = '<div class="ovcard">' +
-    '<h2>第 ' + handNum + ' 局结束</h2>' +
-    '<button class="btn bigbtn" id="btn-next"' + (meReady ? ' disabled' : '') + '>' + (meReady ? '已准备 · 等待其他玩家' : '准备下一局') + '</button>' +
+    '<h2>' + (handNum > 0 ? '第 ' + handNum + ' 局结束' : '房间已恢复') + '</h2>' +
+    '<button class="btn bigbtn" id="btn-next"' + (meReady ? ' disabled' : '') + '>' + (meReady ? '已准备 · 等待其他玩家' : (handNum > 0 ? '准备下一局' : '准备开始')) + '</button>' +
     res +
     '<div class="seatlist">' + rows + '</div>' +
     '<p class="dim">所有人准备后开始下一局 · 已离开或离线的玩家不再等待</p>' +
@@ -1303,7 +1398,7 @@ function renderNextOverlay(){
   $('#btn-next').onclick = () => { if(nextHandResolver) markReady(localIdx); };
 }
 function histRow(h){
-  return '<span><b>第 ' + h.no + ' 局</b><span>' + h.names + (h.hand ? ' · ' + h.hand : '') + ' +$' + h.amt + '<br>原因：' + h.reason + '</span></span>';
+  return '<span><b>第 ' + h.no + ' 局</b><span>' + escHtml(h.names) + (h.hand ? ' · ' + h.hand : '') + ' +$' + h.amt + '<br>原因：' + h.reason + '</span></span>';
 }
 function showHistoryOverlay(){
   const ov = $('#overlay');
@@ -1368,7 +1463,7 @@ function gameOverScreen(win){
   const ov = $('#overlay');
   ov.classList.remove('hide');
   ov.classList.remove('bottom');
-  const winnerLine = (!win && aliveP.length === 1) ? '<p><b style="color:#ffd97a">' + aliveP[0].name + '</b> 赢下了整场对局</p>' : '';
+  const winnerLine = (!win && aliveP.length === 1) ? '<p><b style="color:#ffd97a">' + escHtml(aliveP[0].name) + '</b> 赢下了整场对局</p>' : '';
   ov.innerHTML = '<div class="ovcard">' +
     '<h1>' + (win ? '你赢了！' : '游戏结束') + '</h1>' +
     winnerLine +
@@ -1533,6 +1628,12 @@ function initSeats(mode, myName){
   clientReadySent = false;
   newHistSession();
   curBlinds = {sb: cfg.sb, bb: cfg.bb};
+  sliderTurnKey = '';
+  disarmRaiseConfirm();
+  disarmCallConfirm();
+  potsInfo = null;
+  lastHostActivity = 0;
+  pendingActionFails = 0;
   $('#logdock-body').innerHTML = '';
   $('#dock-latest').innerHTML = '';
   $('#dock-latest').classList.remove('hl');
@@ -1567,6 +1668,10 @@ function resetGame(){
   nextOnStart = null;
   newHistSession();
   curBlinds = {sb: cfg.sb, bb: cfg.bb};
+  sliderTurnKey = '';
+  disarmRaiseConfirm();
+  disarmCallConfirm();
+  potsInfo = null;
   syncBoard();
   render();
 }
@@ -1681,14 +1786,20 @@ function hostHandleData(conn, d){
 }
 function promoteSpectators(){
   if(!net || net.mode !== 'host' || !net.spectators || !net.spectators.length) return;
-  const before = net.spectators.length;
-  net.spectators = net.spectators.filter(conn => {
+  const remaining = [];
+  let changed = false;
+  for(let k = net.spectators.length - 1; k >= 0; k--){
+    const conn = net.spectators[k];
     const seatIdx = players.findIndex((p, i) => i !== localIdx && !p.seated);
-    if(seatIdx === -1) return true;
-    seatRemotePlayer(conn, seatIdx);
-    return false;
-  });
-  if(net.spectators.length < before) render();
+    if(seatIdx === -1){
+      remaining.push(conn);
+    }else{
+      seatRemotePlayer(conn, seatIdx);
+      changed = true;
+    }
+  }
+  net.spectators = remaining;
+  if(changed) render();
 }
 function hostDropConn(conn){
   if(!net || net.mode !== 'host') return;
@@ -1718,8 +1829,8 @@ function refreshHostLobby(){
   ov.classList.remove('bottom');
   const seated = players.filter(p => p.seated);
   const seatRows = players.map((p, i) => {
-    if(i === localIdx) return '<span><b style="color:' + p.color + '">' + (net.hostName || '房主') + '</b><span>房主 · 就绪</span></span>';
-    if(p.seated) return '<span><b style="color:' + p.color + '">' + p.name + '</b><span>' + (p.offline ? '离线等待重连' : '已入座') + '</span></span>';
+    if(i === localIdx) return '<span><b style="color:' + p.color + '">' + escHtml(net.hostName || '房主') + '</b><span>房主 · 就绪</span></span>';
+    if(p.seated) return '<span><b style="color:' + p.color + '">' + escHtml(p.name) + '</b><span>' + (p.offline ? '离线等待重连' : '已入座') + '</span></span>';
     return '<span><b style="color:#7f909f">空位 ' + i + '</b><span>等待加入</span></span>';
   }).join('');
   const spect = net.spectators.length;
@@ -1793,15 +1904,17 @@ function connectRoom(peer, name, code, opts, n){
     if(opened) return;
     opened = true;
     clearTimeout(failTimer);
+    lastHostActivity = Date.now();
     net = {mode:'client', peer, conn, code, seat:undefined, myName:name};
     try{ conn.send({type:'join', name}); }catch(e){}
   });
-  conn.on('data', d => { if(!net || net.conn === conn) clientHandleData(d); });
+  conn.on('data', d => { lastHostActivity = Date.now(); if(!net || net.conn === conn) clientHandleData(d); });
   conn.on('close', () => { clearTimeout(failTimer); if(opened) clientDisconnected(); });
   conn.on('error', () => { clearTimeout(failTimer); if(!opened){ if(n >= 2){ fallback(); } else retry(); } });
 }
 function clientHandleData(d){
   if(!d || !net || net.mode !== 'client') return;
+  if(d.type === 'ping') return;
   if(d.type === 'expired'){
     if(migrating){ migrating.cancelled = true; migrating = null; }
     if(net){ try{ net.peer && net.peer.destroy(); }catch(e){} }
@@ -1844,17 +1957,7 @@ function showMigratePanel(text, fatal){
 }
 function pickHostCandidate(snap){
   const alive = (snap.players || []).filter(p => p.seated && !p.elim && p.i !== snap.hostIdx);
-  if(!alive.length) return -1;
-  const top = Math.max.apply(null, alive.map(p => p.stack));
-  const tied = alive.filter(p => p.stack === top);
-  if(tied.length === 1) return tied[0].i;
-  const seedStr = snap.handNum + '|' + snap.dealerIdx + '|' + alive.map(p => p.stack + ':' + p.i).join(',');
-  let h = 2166136261;
-  for(let k = 0; k < seedStr.length; k++){
-    h ^= seedStr.charCodeAt(k);
-    h = Math.imul(h, 16777619);
-  }
-  return tied[(h >>> 0) % tied.length].i;
+  return hostCandidateFrom(alive, snap.handNum, snap.dealerIdx);
 }
 async function startMigration(){
   if(!net || net.mode !== 'client') return;
@@ -1863,14 +1966,13 @@ async function startMigration(){
   migrating = info;
   showMigratePanel('与房主的连接已断开，正在自动恢复房间…');
   const snap = info.snap;
-  const cand = (snap && snap.started && !snap.over) ? pickHostCandidate(snap) : -1;
-  if(cand === info.mySeat && info.mySeat >= 0){
+  const recoverable = !!(snap && !snap.over && info.mySeat >= 0);
+  const cand = recoverable ? pickHostCandidate(snap) : -1;
+  if(cand === info.mySeat){
     info.role = 'takeover';
     showMigratePanel('你是新房主人选（场上筹码最高），正在接管房间…');
-    await delay(4000);
-  }else{
-    await delay(5000);
   }
+  await delay(2000);
   if(migrating !== info || info.cancelled) return;
   if(info.role === 'takeover') tryTakeover(info, 0);
   else migrateReconnect(info);
@@ -1888,7 +1990,7 @@ async function tryTakeover(info, n){
     settled = true;
     try{ peer.destroy(); }catch(e){}
     if(migrating === info && n < 6) setTimeout(() => tryTakeover(info, n + 1), 2000);
-  }, 12000);
+  }, 8000);
   peer.on('open', () => {
     if(settled){ try{ peer.destroy(); }catch(e){} return; }
     settled = true;
@@ -1901,9 +2003,14 @@ async function tryTakeover(info, n){
     clearTimeout(t);
     try{ peer.destroy(); }catch(e){}
     if(n < 6){
-      await delay(err.type === 'unavailable-id' ? 4000 : 5000);
+      await delay(err.type === 'unavailable-id' ? 4000 : 3000);
       if(migrating === info && !info.cancelled) tryTakeover(info, n + 1);
     }else{
+      info.round = (info.round || 0) + 1;
+      if(info.round >= 3){
+        showMigratePanel('多次接管房间均未成功（房主的房间号迟迟未释放），请稍后刷新页面重新加入，或返回首页。', true);
+        return;
+      }
       info.role = 'reconnect';
       info.tries = 0;
       migrateReconnect(info);
@@ -1956,6 +2063,12 @@ function takeoverAsHost(peer, info){
   overInfo = null;
   snapshotWaitingNext = false;
   pendingAction = false;
+  pendingActionFails = 0;
+  lastHostActivity = Date.now();
+  potsInfo = null;
+  sliderTurnKey = '';
+  disarmRaiseConfirm();
+  disarmCallConfirm();
   logLines = (snap.logLines || []).slice();
   rebuildLog(logLines);
   log('<span class="sep">— ' + N(players[localIdx]) + ' 接管房间' + (refunded ? '，第 ' + handNum + ' 局作废并退还下注' : '') + ' —</span>');
@@ -1981,8 +2094,12 @@ function takeoverAsHost(peer, info){
   showNextHandOverlay(() => runGame());
 }
 async function migrateReconnect(info){
+  const snap = info.snap;
+  const recoverable = !!(snap && !snap.over && info.mySeat >= 0);
+  const maxTries = recoverable ? 12 : 6;
+  const fatalText = '多次尝试后仍无法恢复房间：房主可能已离开且无人接管，或当前网络无法访问联机服务器。';
   while(migrating === info && !info.cancelled){
-    showMigratePanel('正在重连房间 ' + info.code + ' …');
+    showMigratePanel('正在重连房间 ' + info.code + '（第 ' + (info.tries + 1) + ' 次尝试）…');
     let Peer;
     try{ Peer = await loadPeerJS(); }
     catch(e){ showMigratePanel('' + (e.message || e), true); return; }
@@ -2006,15 +2123,15 @@ async function migrateReconnect(info){
     const conn = peer.connect('thpoker-' + info.code, {reliable:true});
     let opened = false;
     await new Promise(res => {
-      const t = setTimeout(res, 6000);
-      conn.on('open', () => { opened = true; clearTimeout(t); res(); });
+      const t = setTimeout(res, 4000);
+      conn.on('open', () => { opened = true; lastHostActivity = Date.now(); clearTimeout(t); res(); });
       conn.on('error', () => { clearTimeout(t); res(); });
     });
     if(migrating !== info || info.cancelled) return;
     if(opened){
       net = {mode:'client', peer, conn, code: info.code, seat: undefined, myName: info.myName};
       try{ conn.send({type:'join', name: info.myName}); }catch(e){}
-      conn.on('data', d => { if(net && net.conn === conn) clientHandleData(d); });
+      conn.on('data', d => { lastHostActivity = Date.now(); if(net && net.conn === conn) clientHandleData(d); });
       conn.on('close', () => clientDisconnected());
       conn.on('error', () => clientDisconnected());
       const waitStart = Date.now();
@@ -2023,16 +2140,25 @@ async function migrateReconnect(info){
       }
       if(migrating !== info || info.cancelled) return;
       try{ conn.close(); }catch(e){}
+      info.tries++;
+      if(info.tries >= maxTries){ showMigratePanel(fatalText, true); return; }
       continue;
     }
     try{ conn.close(); }catch(e){}
     info.tries++;
-    if(info.tries >= 5 && info.mySeat >= 0 && info.snap && info.snap.started && !info.snap.over){
-      info.role = 'takeover';
-      tryTakeover(info, 0);
+    if(recoverable && info.tries >= 3){
+      const cand = pickHostCandidate(snap);
+      if(cand === info.mySeat || info.tries >= 7){
+        info.role = 'takeover';
+        tryTakeover(info, 0);
+        return;
+      }
+    }
+    if(info.tries >= maxTries){
+      showMigratePanel(fatalText, true);
       return;
     }
-    await delay(3000);
+    await delay(1500);
   }
 }
 function currentTurnLeftMs(){
@@ -2071,6 +2197,17 @@ function renderTurnTimer(){
   }
 }
 setInterval(renderTurnTimer, 300);
+setInterval(() => {
+  if(net && net.mode === 'host'){
+    const all = net.conns.concat(net.spectators);
+    all.forEach(c => { try{ if(c.open !== false) c.send({type:'ping'}); }catch(e){} });
+  }
+}, 2000);
+setInterval(() => {
+  if(net && net.mode === 'client' && net.conn && net.conn.open !== false && !migrating && lastHostActivity && Date.now() - lastHostActivity > 35000){
+    clientDisconnected();
+  }
+}, 3000);
 function snapshotFor(seat){
   return {
     v: 4, yourSeat: seat,
@@ -2081,6 +2218,7 @@ function snapshotFor(seat){
     cfg, handResult, handHistory: handHistory.slice(-80),
     histSession,
     stage: stageLabel, board: board,
+    potsInfo: potsInfo,
     turnLeft: turnDeadline ? Math.max(0, turnDeadline - Date.now()) : 0,
     utg: utgIdx,
     spectCount: net.spectators ? net.spectators.length : 0,
@@ -2097,12 +2235,19 @@ function snapshotFor(seat){
     banner: bannerState
   };
 }
+let _netBcastPending = false;
 function netBroadcast(){
   if(!net || net.mode !== 'host') return;
-  const all = net.conns.concat(net.spectators);
-  all.forEach(c => {
-    try{ if(c.open !== false) c.send({type:'state', s: snapshotFor(c.seat)}); }catch(e){}
-  });
+  if(_netBcastPending) return;
+  _netBcastPending = true;
+  setTimeout(() => {
+    _netBcastPending = false;
+    if(!net || net.mode !== 'host') return;
+    const all = net.conns.concat(net.spectators);
+    all.forEach(c => {
+      try{ if(c.open !== false) c.send({type:'state', s: snapshotFor(c.seat)}); }catch(e){}
+    });
+  }, 120);
 }
 function applySnapshot(s){
   if(!s || !net || net.mode !== 'client') return;
@@ -2121,6 +2266,8 @@ function applySnapshot(s){
   stageLabel = s.stage || '';
   snapshotWaitingNext = !!s.waitingNext;
   pendingAction = false;
+  pendingActionFails = 0;
+  potsInfo = Array.isArray(s.potsInfo) ? s.potsInfo : null;
   clientTurnLeft = {ms: s.turnLeft || 0, at: Date.now()};
   utgIdx = (typeof s.utg === 'number') ? s.utg : -1;
   readyNext = {};
@@ -2146,20 +2293,20 @@ function showClientWaiting(){
     if(!waiting){
       const you = i === localIdx ? '【你】' : '';
       const hostMark = i === hostIdx ? '【房主】' : '';
-      return '<span><b style="color:' + p.color + '">' + you + hostMark + p.name + '</b><span>' + (p.offline ? '离线中' : '就绪') + '</span></span>';
+      return '<span><b style="color:' + p.color + '">' + you + hostMark + escHtml(p.name) + '</b><span>' + (p.offline ? '离线中' : '就绪') + '</span></span>';
     }
     return nextRowHtml(p);
   }).join('');
   const res = (waiting && handResult)
-    ? '<p class="winline">胜者：<b>' + handResult.names + '</b>' + (handResult.hand ? ' · ' + handResult.hand : '') + '<br>赢得 $' + handResult.amt + '（' + handResult.reason + '）</p>'
+    ? '<p class="winline">胜者：<b>' + escHtml(handResult.names) + '</b>' + (handResult.hand ? ' · ' + handResult.hand : '') + '<br>赢得 $' + handResult.amt + '（' + handResult.reason + '）</p>'
     : '';
-  const headTitle = waiting ? '第 ' + Math.max(handNum, 1) + ' 局结束' : (localIdx < 0 ? '已加入（观战）' : '已加入房间 ' + (net && net.code || ''));
+  const headTitle = waiting ? (handNum > 0 ? '第 ' + handNum + ' 局结束' : '房间已恢复') : (localIdx < 0 ? '已加入（观战）' : '已加入房间 ' + (net && net.code || ''));
   let tail, readyBtn = '';
   if(waiting){
     const myReady = localIdx >= 0 && (readyNext[localIdx] || clientReadySent);
     const canReady = localIdx >= 0 && players[localIdx] && players[localIdx].seated && !players[localIdx].elim;
     readyBtn = canReady
-      ? '<button class="btn bigbtn" id="btn-cready"' + (myReady ? ' disabled' : '') + '>' + (myReady ? '已准备' : '准备下一局') + '</button>'
+      ? '<button class="btn bigbtn" id="btn-cready"' + (myReady ? ' disabled' : '') + '>' + (myReady ? '已准备' : (handNum > 0 ? '准备下一局' : '准备开始')) + '</button>'
       : '';
     tail = '<p class="dim" id="next-count">所有人准备后开始下一局 · 已离开或离线的玩家不再等待</p>' +
       '<button class="btn bigbtn" id="btn-chist">查看历史战绩</button>';
@@ -2192,7 +2339,7 @@ function showClientOver(over){
   ov.classList.remove('bottom');
   ov.innerHTML = '<div class="ovcard">' +
     '<h1>牌局结束</h1>' +
-    '<p>' + (over.winner ? '<b>' + over.winner + '</b> 赢下了整场对局。' : '整场对局已结束。') + '</p>' +
+    '<p>' + (over.winner ? '<b>' + escHtml(over.winner) + '</b> 赢下了整场对局。' : '整场对局已结束。') + '</p>' +
     '<p class="dim">共 ' + (over.hands || handNum) + ' 局 · 房主重新开局时自动跟进，或刷新页面重新加入</p>' +
     '<button class="btn bigbtn" id="btn-chist">查看历史战绩</button>' +
     '</div>';
@@ -2231,6 +2378,12 @@ function resetToLobby(){
   readyNext = {};
   clientReadySent = false;
   pendingAction = false;
+  pendingActionFails = 0;
+  lastHostActivity = 0;
+  potsInfo = null;
+  sliderTurnKey = '';
+  disarmRaiseConfirm();
+  disarmCallConfirm();
   snapshotWaitingNext = false;
   humanResolver = null;
   players = [];
@@ -2270,7 +2423,7 @@ function showStartOverlay(){
   try{ saved = (localStorage.getItem('thp-name') || '').trim(); }catch(e){}
   ov.innerHTML = '<div class="ovcard">' +
     '<h1>德州扑克</h1>' +
-    '<p>无限注德州扑克 · 单机或口令码联机 · 盲注每 8 局升级</p>' +
+    '<p>无限注德州扑克 · 单机或口令码联机 · 盲注每 10 局翻倍</p>' +
     '<div class="joinrow">' +
       '<input id="inp-name" maxlength="8" placeholder="你的昵称（同桌可见）" value="' + saved.replace(/"/g, '') + '">' +
     '</div>' +
@@ -2317,7 +2470,7 @@ if(typeof window !== 'undefined'){
     promoteSpectators, seatRemotePlayer, copyText, showToast, refreshHostLobby, render,
     players: () => players, net: () => net,
     posTags, newHand, syncBoard, readCfg, genCode, markReady, resetToLobby,
-    readyNext: () => readyNext, nextDeadline: () => nextDeadline,
+    readyNext: () => readyNext,
     handHistory: () => handHistory, handResult: () => handResult,
     recordHand, loadHist, saveHist, clearHist,
     histSession: () => histSession, setHistSession(v){ histSession = v; },
@@ -2366,9 +2519,34 @@ $('#btn-call').onclick = () => {
   const p = localIdx >= 0 ? players[localIdx] : null;
   if(!p) return;
   const toCall = curBet - p.bet;
+  if(toCall > 0 && toCall >= p.stack && !callConfirmArmed){
+    callConfirmArmed = true;
+    clearTimeout(callConfirmTimer);
+    callConfirmTimer = setTimeout(() => { disarmCallConfirm(); renderActionBar(); }, 2500);
+    const btn = $('#btn-call');
+    btn.classList.add('armed');
+    btn.textContent = '再点一次确认全下';
+    return;
+  }
+  disarmCallConfirm();
   submitAction({t: toCall <= 0 ? 'check' : 'call'});
 };
-$('#btn-raise').onclick = () => submitAction({t:'raise', to:+$('#range').value});
+$('#btn-raise').onclick = () => {
+  const p = localIdx >= 0 ? players[localIdx] : null;
+  if(!p) return;
+  const v = +$('#range').value;
+  if(v >= p.bet + p.stack && !raiseConfirmArmed){
+    raiseConfirmArmed = true;
+    clearTimeout(raiseConfirmTimer);
+    raiseConfirmTimer = setTimeout(() => { disarmRaiseConfirm(); updateRaiseLabel(); }, 2500);
+    const btn = $('#btn-raise');
+    btn.classList.add('armed');
+    btn.textContent = '再点一次确认全下';
+    return;
+  }
+  disarmRaiseConfirm();
+  submitAction({t:'raise', to: v});
+};
 $('#range').oninput = () => updateRaiseLabel();
 document.querySelectorAll('#raiserow .qp').forEach(b => {
   b.onclick = () => {
